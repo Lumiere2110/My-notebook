@@ -51,6 +51,7 @@ const ICONS = {
   restore: 'M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18z',
   widgets: 'M13 13v8h8v-8h-8zM3 21h8v-8H3v8zM3 3v8h8V3H3zm13.66-1.31L11 7.34 16.66 13l5.66-5.66-5.66-5.65z',
   link: 'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z',
+  multi: 'M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z',
   checkbox: 'M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z',
   dropdown: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 12-4-4h8l-4 4z',
   ruler: 'M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H3V8h2v4h2V8h2v4h2V8h2v4h2V8h2v4h2V8h2v8z',
@@ -275,14 +276,39 @@ const boxById = (id) => S.boxes.find((b) => b.id === id);
 const folderById = (id) => S.folders.find((f) => f.id === id);
 const fileById = (id) => S.files.find((f) => f.id === id);
 const boxAlive = (b) => !!b && !b.trashedAt;
-const folderAlive = (f) => !!f && !f.trashedAt && boxAlive(boxById(f.boxId));
-const fileAlive = (f) => !!f && !f.trashedAt && folderAlive(folderById(f.folderId));
+/* フォルダは複数のボックスに、メモファイルは複数のフォルダに入れられる。
+   boxId / folderId が最初に入れた場所、alsoBoxes / alsoFolders がほかに入れている場所 */
+const folderBoxIds = (f) => [f.boxId, ...(f.alsoBoxes || [])];
+const fileFolderIds = (f) => [f.folderId, ...(f.alsoFolders || [])];
+const folderAlive = (f) => !!f && !f.trashedAt && folderBoxIds(f).some((id) => boxAlive(boxById(id)));
+const fileAlive = (f) => !!f && !f.trashedAt && fileFolderIds(f).some((id) => folderAlive(folderById(id)));
+const folderInBox = (fo, boxId) => !!fo && !fo.trashedAt && folderBoxIds(fo).includes(boxId);
+const fileInFolder = (f, folderId) => fileFolderIds(f).includes(folderId) && folderAlive(folderById(folderId));
+const fileInBox = (f, boxId) => fileFolderIds(f).some((id) => folderInBox(folderById(id), boxId));
+const liveFoldersOfFile = (f) => fileFolderIds(f).map(folderById).filter(folderAlive);
+const liveBoxesOfFolder = (fo) => folderBoxIds(fo).map(boxById).filter(boxAlive);
 const liveBoxes = () => S.boxes.filter(boxAlive).sort((a, b) => a.created - b.created);
-const foldersOf = (boxId) => S.folders.filter((f) => f.boxId === boxId && !f.trashedAt).sort((a, b) => a.created - b.created);
-const filesOf = (boxId, folderId = 'all') => S.files.filter((f) => f.boxId === boxId && fileAlive(f) && (folderId === 'all' || f.folderId === folderId)).sort((a, b) => b.updated - a.updated);
+const foldersOf = (boxId) => S.folders.filter((f) => folderInBox(f, boxId)).sort((a, b) => a.created - b.created);
+const filesOf = (boxId, folderId = 'all') => S.files.filter((f) => fileAlive(f) && (folderId === 'all' ? fileInBox(f, boxId) : fileInFolder(f, folderId))).sort((a, b) => b.updated - a.updated);
 const boxName = (b) => (b ? b.name + 'ボックス' : '');
 function cleanBoxName(v) { return String(v || '').trim().replace(/\s*ボックス$/, '').trim(); }
 function filePath(f) { return `${boxName(boxById(f.boxId))} › ${folderById(f.folderId)?.name || ''}`; }
+/* いま開いているボックス（ほかの場所から開いたメモファイルでも、来たボックスを優先） */
+function contextBoxOf(f) {
+  const m = /^#\/b\/([^/]+)/.exec(S.lastBoxHash || '');
+  if (m && fileInBox(f, m[1])) return m[1];
+  if (folderInBox(folderById(f.folderId), f.boxId) && boxAlive(boxById(f.boxId))) return f.boxId;
+  const fo = liveFoldersOfFile(f)[0];
+  return fo ? liveBoxesOfFolder(fo)[0].id : f.boxId;
+}
+/* メモファイルから戻る先（来たボックス・フォルダに入っていればそこへ） */
+function backFor(f) {
+  const m = /^#\/b\/([^/]+)(?:\/([^/]+))?/.exec(S.lastBoxHash || '');
+  if (m && fileInBox(f, m[1])) return !m[2] || fileInFolder(f, m[2]) ? S.lastBoxHash : boxHash(m[1]);
+  const box = contextBoxOf(f);
+  const fo = liveFoldersOfFile(f).find((x) => folderInBox(x, box));
+  return boxHash(box, fo?.id);
+}
 
 /* ===== タグ ===== */
 const HASHTAG = /#([^\s#、。，．,.!?！？()（）「」『』【】\[\]{}<>"'`]+)/g;
@@ -381,7 +407,7 @@ function renderNav() {
   const nav = $('#sidebar');
   nav.replaceChildren();
   const r = S.route;
-  const curBox = r.name === 'box' ? r.boxId : r.name === 'file' ? fileById(r.fileId)?.boxId : null;
+  const curBox = r.name === 'box' ? r.boxId : r.name === 'file' && fileById(r.fileId) ? contextBoxOf(fileById(r.fileId)) : null;
   nav.append(el('div', { class: 'nav-head', text: 'ボックス' }));
   for (const b of liveBoxes()) {
     const c = filesOf(b.id).length;
@@ -455,7 +481,7 @@ function render() {
   if (r.name === 'box') {
     const b = boxById(r.boxId);
     if (!boxAlive(b)) return goHome(true);
-    if (r.folderId !== 'all' && !(folderAlive(folderById(r.folderId)) && folderById(r.folderId).boxId === b.id)) { history.replaceState(null, '', boxHash(b.id)); r.folderId = 'all'; }
+    if (r.folderId !== 'all' && !(folderInBox(folderById(r.folderId), b.id) && folderAlive(folderById(r.folderId)))) { history.replaceState(null, '', boxHash(b.id)); r.folderId = 'all'; }
     setPref('lastBox', b.id);
     S.lastBoxHash = boxHash(b.id, r.folderId);
     return renderBox(main, b, r.folderId);
@@ -488,17 +514,20 @@ function renderBox(main, box, folderId) {
     el('span', { class: 'sub', text: `フォルダ ${folders.length} · メモファイル ${all.length}` }),
     iconBtn('more', 'ボックスのメニュー', (e) => { e.stopPropagation(); boxMenu(e.currentTarget, box); }, 'sm')));
 
-  const folderBtn = (id, name, count, ic) => {
+  const folderBtn = (id, name, count, ic, others) => {
     const on = folderId === id;
+    const tip = (on ? `${name}（開いています）` : name) + (others?.length ? `\nほかに入っているボックス: ${others.map(boxName).join('、')}` : '');
     return el('button', {
-      class: 'folder-item' + (on ? ' active' : ''), type: 'button', title: on ? `${name}（開いています）` : name, 'aria-current': on ? 'true' : null,
+      class: 'folder-item' + (on ? ' active' : ''), type: 'button', title: tip, 'aria-current': on ? 'true' : null,
       onclick: () => go(boxHash(box.id, id)),
-    }, icon(on && ic === 'folder' ? 'folderOpen' : ic), el('span', { class: 'folder-name', text: name }), el('span', { class: 'count', text: count }));
+    }, icon(on && ic === 'folder' ? 'folderOpen' : ic), el('span', { class: 'folder-name', text: name }),
+      others?.length ? el('span', { class: 'folder-shared', title: `ほかに ${others.length} 個のボックスにも入っています` }, icon('multi')) : null,
+      el('span', { class: 'count', text: count }));
   };
 
   const side = el('aside', { class: 'folders', 'aria-label': 'フォルダ' },
     folderBtn('all', 'すべてのフォルダ', all.length, 'folders'),
-    folders.map((f) => folderBtn(f.id, f.name, all.filter((x) => x.folderId === f.id).length, 'folder')),
+    folders.map((f) => folderBtn(f.id, f.name, all.filter((x) => fileInFolder(x, f.id)).length, 'folder', liveBoxesOfFolder(f).filter((b) => b.id !== box.id))),
     el('button', { class: 'folder-item add', type: 'button', onclick: () => createFolder(box) }, icon('plus'), el('span', { text: '新しいフォルダ' })));
 
   const folder = folderId === 'all' ? null : folderById(folderId);
@@ -513,7 +542,7 @@ function renderBox(main, box, folderId) {
     el('button', { class: 'btn primary', type: 'button', onclick: () => createFile(box, folderId) }, icon('plus'), '新しいメモファイル'));
 
   let body;
-  if (list.length) body = el('div', { class: 'file-grid' }, list.map((f) => fileCard(f, !folder)));
+  if (list.length) body = el('div', { class: 'file-grid' }, list.map((f) => fileCard(f, !folder, false, box.id)));
   else if (!folders.length) body = el('div', { class: 'empty-state small' }, icon('folder'), el('p', { text: 'まだフォルダがありません' }),
     el('button', { class: 'btn', type: 'button', onclick: () => createFolder(box) }, icon('plus'), 'フォルダを作る'));
   else body = el('div', { class: 'empty-state small' }, icon('file'), el('p', { text: 'メモファイルはまだありません' }));
@@ -530,7 +559,7 @@ function renderSearch(main, q) {
   const list = S.files.filter((f) => {
     if (!fileAlive(f)) return false;
     const tags = [...fileTags(f)].map((t) => t.toLowerCase());
-    const hay = [f.name, fileText(f), folderById(f.folderId)?.name, boxName(boxById(f.boxId))].join('\n').toLowerCase();
+    const hay = [f.name, fileText(f), ...liveFoldersOfFile(f).map((fo) => fo.name), ...liveFoldersOfFile(f).flatMap(liveBoxesOfFolder).map(boxName)].join('\n').toLowerCase();
     return words.every((w) => (w.startsWith('#') && w.length > 1 ? tags.some((t) => t.includes(w.slice(1))) : hay.includes(w)));
   }).sort((a, b) => b.updated - a.updated);
   const isTag = /^#\S+$/.test(q);
@@ -546,16 +575,22 @@ function thumbOf(page) {
   fitRO.observe(thumb);
   return thumb;
 }
-function fileCard(f, showFolder, showBox) {
-  const where = [showBox ? boxName(boxById(f.boxId)) : null, showFolder ? folderById(f.folderId)?.name : null].filter(Boolean).join(' › ');
-  const open = () => { clearSearch(); go('#/f/' + f.id); };
+function fileCard(f, showFolder, showBox, ctxBox) {
+  const fos = liveFoldersOfFile(f);
+  const here = ctxBox ? fos.filter((fo) => folderInBox(fo, ctxBox)) : fos.slice(0, 1);
+  const where = showBox ? `${boxName(liveBoxesOfFolder(here[0] || {})[0] || boxById(f.boxId))} › ${(here[0] || folderById(f.folderId))?.name || ''}`
+    : showFolder ? here.map((fo) => fo.name).join('・') : '';
+  const allPaths = fos.flatMap((fo) => liveBoxesOfFolder(fo).map((b) => `${boxName(b)} › ${fo.name}`));
+  const more = allPaths.length - (showBox ? 1 : showFolder ? here.length : 1);
+  const open = () => { if (ctxBox) S.lastBoxHash = boxHash(ctxBox, S.route.folderId); clearSearch(); go('#/f/' + f.id); };
   const tags = [...fileTags(f)].slice(0, 4);
   return el('div', { class: 'file-card', tabindex: 0, role: 'link', 'aria-label': f.name, onclick: open, onkeydown: (e) => { if (e.key === 'Enter') open(); } },
     el('div', { class: 'thumb-wrap' }, thumbOf(f.pages[0] || newPage())),
     el('div', { class: 'file-info' },
       el('div', { class: 'file-name', text: f.name || '無題のメモ' }),
       el('div', { class: 'file-meta', text: `${f.pages.length}ページ · ${fmtDate(f.updated)}` }),
-      where ? el('div', { class: 'file-path' }, icon('folder'), el('span', { text: where })) : null,
+      where || more > 0 ? el('div', { class: 'file-path', title: allPaths.length > 1 ? '入っている場所:\n' + allPaths.join('\n') : null }, icon(more > 0 ? 'multi' : 'folder'),
+        where ? el('span', { text: where }) : null, more > 0 ? el('span', { class: 'file-more-places', text: where ? `ほか${more}か所` : `ほかに${more}か所` }) : null) : null,
       tags.length ? el('div', { class: 'file-tags' }, tags.map((t) => el('span', { class: 'chip', text: '#' + t }))) : null),
     iconBtn('more', 'メモファイルのメニュー', (e) => { e.stopPropagation(); fileMenu(e.currentTarget, f); }, 'sm file-more'));
 }
@@ -564,8 +599,8 @@ function fileCard(f, showFolder, showBox) {
 function trashLists() {
   return {
     boxes: S.boxes.filter((b) => b.trashedAt),
-    folders: S.folders.filter((f) => f.trashedAt && boxAlive(boxById(f.boxId))),
-    files: S.files.filter((f) => f.trashedAt && folderAlive(folderById(f.folderId))),
+    folders: S.folders.filter((f) => f.trashedAt && folderBoxIds(f).some((id) => boxAlive(boxById(id)))),
+    files: S.files.filter((f) => f.trashedAt && fileFolderIds(f).some((id) => folderAlive(folderById(id)))),
   };
 }
 function trashCount() { const t = trashLists(); return t.boxes.length + t.folders.length + t.files.length; }
@@ -585,7 +620,7 @@ function renderTrash(main) {
   const section = (title, rows) => (rows.length ? el('section', { class: 'trash-section' }, el('h2', { text: title }), el('div', { class: 'trash-list' }, rows)) : null);
   main.append(el('div', { class: 'trash-wrap' },
     section('ボックス', t.boxes.map((b) => row('box', b, 'box', boxName(b), `フォルダ ${S.folders.filter((f) => f.boxId === b.id).length}・メモファイル ${S.files.filter((f) => f.boxId === b.id).length} 入り`))),
-    section('フォルダ', t.folders.map((f) => row('folder', f, 'folder', f.name, `${boxName(boxById(f.boxId))} · メモファイル ${S.files.filter((x) => x.folderId === f.id).length} 入り`))),
+    section('フォルダ', t.folders.map((f) => row('folder', f, 'folder', f.name, `${boxName(boxById(f.boxId))} · メモファイル ${S.files.filter((x) => fileFolderIds(x).includes(f.id)).length} 入り`))),
     section('メモファイル', t.files.map((f) => row('file', f, 'file', f.name, filePath(f), el('div', { class: 'trash-thumb' }, thumbOf(f.pages[0] || newPage())))))));
 }
 const STORE = { box: 'boxes', folder: 'folders', file: 'files' };
@@ -597,16 +632,36 @@ function trashItem(kind, obj, label) {
 function restoreItem(kind, obj, quiet) {
   obj.trashedAt = null;
   put(STORE[kind], obj);
-  if (!quiet) toast('元に戻しました', '開く', () => go(kind === 'box' ? boxHash(obj.id) : kind === 'folder' ? boxHash(obj.boxId, obj.id) : '#/f/' + obj.id));
+  if (!quiet) toast('元に戻しました', '開く', () => go(kind === 'box' ? boxHash(obj.id) : kind === 'folder' ? boxHash((liveBoxesOfFolder(obj)[0] || obj).id === obj.id ? obj.boxId : liveBoxesOfFolder(obj)[0].id, obj.id) : '#/f/' + obj.id));
   render();
 }
 async function purge(kind, obj) {
-  const files = kind === 'file' ? [obj] : S.files.filter((f) => (kind === 'box' ? f.boxId === obj.id : f.folderId === obj.id));
-  const folders = kind === 'box' ? S.folders.filter((f) => f.boxId === obj.id) : kind === 'folder' ? [obj] : [];
+  /* ほかのボックス・フォルダにも入っているものは消さずに、そちらに残す */
+  const changedFolders = new Set(), changedFiles = new Set();
+  let folders = [];
+  if (kind === 'box') {
+    for (const fo of S.folders) {
+      if (!folderBoxIds(fo).includes(obj.id)) continue;
+      const rest = folderBoxIds(fo).filter((id) => id !== obj.id && boxById(id));
+      if (!rest.length) { folders.push(fo); continue; }
+      fo.boxId = rest[0]; fo.alsoBoxes = rest.slice(1); changedFolders.add(fo);
+    }
+  } else if (kind === 'folder') folders = [obj];
+  const gone = new Set(folders.map((fo) => fo.id));
+  let files = [];
+  if (kind === 'file') files = [obj];
+  else for (const f of S.files) {
+    const ids = fileFolderIds(f);
+    if (!ids.some((id) => gone.has(id))) { if (changedFolders.has(folderById(f.folderId))) { f.boxId = folderById(f.folderId).boxId; changedFiles.add(f); } continue; }
+    const rest = ids.filter((id) => !gone.has(id) && folderById(id));
+    if (!rest.length) { files.push(f); continue; }
+    f.folderId = rest[0]; f.alsoFolders = rest.slice(1); f.boxId = folderById(rest[0]).boxId; changedFiles.add(f);
+  }
   S.files = S.files.filter((f) => !files.includes(f));
   S.folders = S.folders.filter((f) => !folders.includes(f));
   if (kind === 'box') S.boxes = S.boxes.filter((b) => b !== obj);
-  await Promise.all([DB.delMany('files', files.map((f) => f.id)), DB.delMany('folders', folders.map((f) => f.id)), kind === 'box' ? DB.del('boxes', obj.id) : null]).catch(saveFailed);
+  await Promise.all([DB.delMany('files', files.map((f) => f.id)), DB.delMany('folders', folders.map((f) => f.id)), kind === 'box' ? DB.del('boxes', obj.id) : null,
+    changedFolders.size ? DB.putMany('folders', [...changedFolders]) : null, changedFiles.size ? DB.putMany('files', [...changedFiles]) : null]).catch(saveFailed);
 }
 async function purgeItem(kind, obj) {
   const name = kind === 'box' ? boxName(obj) : obj.name;
@@ -674,11 +729,92 @@ async function renameFolder(f) {
   f.name = v.name.trim(); await touch(f, 'folders'); render();
 }
 function deleteFolder(f) {
+  const cur = S.route.name === 'box' ? S.route.boxId : f.boxId;
   trashItem('folder', f, `フォルダ「${f.name}」`);
-  go(boxHash(f.boxId));
+  go(boxHash(cur));
+}
+/* フォルダを入れるボックスを選ぶ（複数可） */
+async function placeFolder(fo) {
+  const boxes = liveBoxes();
+  const v = await dialog({
+    title: `「${fo.name}」を入れるボックス`, note: 'チェックしたボックスすべてに、このフォルダが出ます（中身は同じです。どこで書き換えても全部に反映されます）。', ok: '決定',
+    fields: [{ key: 'boxes', type: 'checks', label: 'ボックス', value: folderBoxIds(fo), options: boxes.map((b) => [b.id, boxName(b)]) }],
+  });
+  if (!v) return;
+  if (!v.boxes.length) { toast('ボックスを1つ以上選んでください'); return; }
+  const dead = folderBoxIds(fo).filter((id) => !boxes.some((b) => b.id === id)); // ゴミ箱の中のボックスは残しておく
+  const keep = v.boxes.includes(fo.boxId) ? fo.boxId : v.boxes[0];
+  fo.boxId = keep; fo.alsoBoxes = [...v.boxes.filter((id) => id !== keep), ...dead];
+  await touch(fo, 'folders');
+  if (S.route.name === 'box' && !folderInBox(fo, S.route.boxId)) go(boxHash(S.route.boxId)); else render();
+  toast(v.boxes.length > 1 ? `${v.boxes.length} 個のボックスに入れました` : `${boxName(boxById(keep))}に入れました`);
+}
+async function removeFolderFromBox(fo, boxId) {
+  const rest = folderBoxIds(fo).filter((id) => id !== boxId);
+  if (!rest.length) return;
+  fo.boxId = rest[0]; fo.alsoBoxes = rest.slice(1);
+  await touch(fo, 'folders');
+  go(boxHash(boxId));
+  toast(`フォルダ「${fo.name}」を${boxName(boxById(boxId))}から外しました（ほかのボックスには残っています）`);
 }
 function folderMenu(anchor, f) {
-  menu(anchor, [['edit', '名前を変更', () => renameFolder(f)], ['trash', 'フォルダを削除（ゴミ箱へ）', () => deleteFolder(f), true]]);
+  const cur = S.route.name === 'box' ? S.route.boxId : null;
+  menu(anchor, [
+    ['edit', '名前を変更', () => renameFolder(f)],
+    ['multi', '入れるボックスを選ぶ（複数可）', () => placeFolder(f)],
+    cur && folderBoxIds(f).length > 1 ? ['close', 'このボックスから外す', () => removeFolderFromBox(f, cur)] : null,
+    ['trash', 'フォルダを削除（ゴミ箱へ）', () => deleteFolder(f), true],
+  ].filter(Boolean));
+}
+/* すべてのフォルダの選択肢（ボックスごと。複数のボックスに入っているフォルダは最初の1回だけ） */
+function folderChoices() {
+  const seen = new Set(), out = [];
+  for (const b of liveBoxes()) {
+    const fos = foldersOf(b.id).filter((fo) => !seen.has(fo.id));
+    if (!fos.length) continue;
+    out.push([null, boxName(b)]);
+    for (const fo of fos) { seen.add(fo.id); out.push([fo.id, fo.name, `${boxName(b)} › ${fo.name}`]); }
+  }
+  return out;
+}
+/* メモファイルを入れるフォルダを選ぶ（複数可） */
+async function placeFile(f) {
+  const choices = folderChoices();
+  const v = await dialog({
+    title: `「${f.name}」を入れるフォルダ`, note: 'チェックしたフォルダすべてに、このメモファイルが出ます（コピーではなく同じメモです。どこで書き換えても全部に反映されます）。', ok: '決定',
+    fields: [{ key: 'folders', type: 'checks', label: 'フォルダ', value: fileFolderIds(f), options: choices.map(([id, name]) => [id, name]) }],
+  });
+  if (!v) return;
+  if (!v.folders.length) { toast('フォルダを1つ以上選んでください'); return; }
+  const dead = fileFolderIds(f).filter((id) => !choices.some(([c]) => c === id));
+  const keep = v.folders.includes(f.folderId) ? f.folderId : v.folders[0];
+  f.folderId = keep; f.alsoFolders = [...v.folders.filter((id) => id !== keep), ...dead]; f.boxId = folderById(keep).boxId;
+  await touch(f, 'files');
+  afterPlaceChange(f);
+  toast(v.folders.length > 1 ? `${v.folders.length} 個のフォルダに入れました` : `「${folderById(keep).name}」に入れました`);
+}
+async function removeFileFromFolder(f, folderId) {
+  const rest = fileFolderIds(f).filter((id) => id !== folderId);
+  if (!rest.length) return;
+  f.folderId = rest[0]; f.alsoFolders = rest.slice(1); f.boxId = folderById(rest[0])?.boxId || f.boxId;
+  await touch(f, 'files');
+  afterPlaceChange(f);
+  toast(`「${f.name}」をフォルダ「${folderById(folderId)?.name || ''}」から外しました（ほかのフォルダには残っています）`);
+}
+function afterPlaceChange(f) {
+  if (ED?.file === f) {
+    ED.back = backFor(f);
+    $('.ed-where')?.replaceWith(whereEl(f));
+    renderNav();
+  } else render();
+}
+function whereEl(f) {
+  const box = contextBoxOf(f);
+  const fo = liveFoldersOfFile(f).find((x) => folderInBox(x, box)) || folderById(f.folderId);
+  const n = liveFoldersOfFile(f).flatMap(liveBoxesOfFolder).length;
+  const paths = liveFoldersOfFile(f).flatMap((x) => liveBoxesOfFolder(x).map((b) => `${boxName(b)} › ${x.name}`));
+  return el('div', { class: 'ed-where', title: n > 1 ? '入っている場所:\n' + paths.join('\n') : null }, icon('box'), boxName(boxById(box)), ' › ', fo?.name || '',
+    n > 1 ? el('span', { class: 'where-more' }, ` ほか${n - 1}か所`) : null);
 }
 
 async function createFile(box, folderId) {
@@ -705,15 +841,18 @@ async function renameFile(f) {
   if (ED?.file === f) $('.ed-name').value = f.name; else render();
 }
 async function moveFile(f) {
-  const opts = [];
-  for (const b of liveBoxes()) for (const fo of foldersOf(b.id)) opts.push([fo.id, `${boxName(b)} › ${fo.name}`]);
-  const v = await dialog({ title: `「${f.name}」を移動`, fields: [{ key: 'folder', type: 'select', label: '移動先のフォルダ', value: f.folderId, options: opts }], ok: '移動' });
-  if (!v || v.folder === f.folderId) return;
+  /* いま見ているフォルダ（なければ最初に入れたフォルダ）から、別のフォルダへ移す。ほかに入れている場所はそのまま */
+  const from = S.route.name === 'box' && fileFolderIds(f).includes(S.route.folderId) ? S.route.folderId : f.folderId;
+  const opts = folderChoices().filter(([id]) => id).map(([id, , path]) => [id, path]);
+  const v = await dialog({ title: `「${f.name}」を移動`, fields: [{ key: 'folder', type: 'select', label: '移動先のフォルダ', value: from, options: opts }], ok: '移動' });
+  if (!v || v.folder === from) return;
   const fo = folderById(v.folder);
-  f.folderId = fo.id; f.boxId = fo.boxId; await touch(f, 'files');
+  const ids = fileFolderIds(f).map((id) => (id === from ? fo.id : id)).filter((id, i, a) => a.indexOf(id) === i);
+  f.folderId = ids[0]; f.alsoFolders = ids.slice(1); f.boxId = folderById(ids[0]).boxId;
+  await touch(f, 'files');
   if (ED?.file === f) {
-    ED.back = boxHash(fo.boxId, fo.id);
-    $('.ed-where').replaceChildren(icon('box'), boxName(boxById(fo.boxId)), ' › ', fo.name);
+    ED.back = boxHash(fo.boxId, fo.id); S.lastBoxHash = ED.back;
+    $('.ed-where')?.replaceWith(whereEl(f));
     renderNav();
   } else render();
   toast(`「${fo.name}」へ移動しました`);
@@ -721,23 +860,27 @@ async function moveFile(f) {
 function cloneFile(f) {
   const t = Date.now();
   const pages = JSON.parse(JSON.stringify(f.pages)).map(remapPage);
-  const c = { ...f, id: uid(), name: f.name + ' のコピー', pages, created: t, updated: t, trashedAt: null };
+  const c = { ...f, alsoFolders: [...(f.alsoFolders || [])], id: uid(), name: f.name + ' のコピー', pages, created: t, updated: t, trashedAt: null };
   S.files.push(c); put('files', c);
   if (!ED) render();
   toast('コピーを作りました', '開く', () => go('#/f/' + c.id));
 }
 function deleteFile(f) {
+  const back = ED?.file === f ? ED.back : null;
   if (ED?.file === f) { if (ED.commitT) commit(); flushSave(); ED = null; }
   trashItem('file', f, `「${f.name}」`);
-  if (S.route.name === 'file' && S.route.fileId === f.id) go(boxHash(f.boxId, f.folderId)); else render();
+  if (S.route.name === 'file' && S.route.fileId === f.id) go(back || backFor(f)); else render();
 }
 function fileMenu(anchor, f) {
+  const cur = S.route.name === 'box' && S.route.folderId !== 'all' ? S.route.folderId : null;
   menu(anchor, [
     ['edit', '名前を変更', () => renameFile(f)],
+    ['multi', '入れるフォルダを選ぶ（複数可）', () => placeFile(f)],
     ['moveTo', '別のフォルダへ移動', () => moveFile(f)],
+    cur && fileFolderIds(f).includes(cur) && fileFolderIds(f).length > 1 ? ['close', 'このフォルダから外す', () => removeFileFromFolder(f, cur)] : null,
     ['copy', 'コピーを作る', () => cloneFile(f)],
     ['trash', '削除（ゴミ箱へ）', () => deleteFile(f), true],
-  ]);
+  ].filter(Boolean));
 }
 
 /* ===== ページの描画（エディターとカードの縮小表示で共通） ===== */
@@ -997,14 +1140,14 @@ function openEditor(file) {
     shape: { kind: "rect", color: INK[0][0], width: PEN_W[1][0], fill: "none" },
     ruler: pref('ruler', '0') === '1',
     textVert: pref("textVert", "0") === "1", textSize: TEXT_SIZES[1][0], textColor: INK[0][0], stickyColor: STICKY[0][0],
-    back: S.lastBoxHash && S.lastBoxHash.startsWith(boxHash(file.boxId)) ? S.lastBoxHash : boxHash(file.boxId, file.folderId),
+    back: backFor(file),
   };
   const nameInput = el('input', { class: 'ed-name', value: file.name, maxlength: 80, 'aria-label': 'メモファイルの名前', placeholder: '無題のメモ' });
   nameInput.addEventListener('input', () => { file.name = nameInput.value; scheduleSave(); });
   nameInput.addEventListener('change', () => { if (!nameInput.value.trim()) { file.name = nameInput.value = '無題のメモ'; scheduleSave(); } });
   nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) nameInput.blur(); });
 
-  const where = el('div', { class: 'ed-where' }, icon('box'), boxName(boxById(file.boxId)), ' › ', folderById(file.folderId)?.name || '');
+  const where = whereEl(file);
   ED.toolBtns = TOOLS.map(([key, ic, label, k]) => el('button', {
     class: 'tool', type: 'button', title: `${label}（${k}）`, 'aria-pressed': key === ED.tool ? 'true' : 'false', dataset: { tool: key },
     onclick: () => setTool(key),
@@ -2340,8 +2483,9 @@ function lassoDelete() {
 
 /* --- 機能アイテム（メモへ移動ボタン・チェックボックス・プルダウン） --- */
 function linkOptions(exclude) {
-  const out = [];
+  const out = [], seen = new Set();
   for (const b of liveBoxes()) for (const fo of foldersOf(b.id)) for (const f of filesOf(b.id, fo.id)) {
+    if (seen.has(f.id)) continue; seen.add(f.id);
     if (ED && f.id === ED.file.id && f.id !== exclude) continue;
     out.push([f.id, `${boxName(b)} › ${fo.name} › ${f.name}`]);
   }
@@ -2464,12 +2608,20 @@ function dialog({ title, note, fields, ok = 'OK' }) {
     const wrap = el('div', { class: 'modal-wrap', onmousedown: (e) => { if (e.target === wrap) done(null); } });
     const form = el('form', {
       class: 'modal dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': title,
-      onsubmit: (e) => { e.preventDefault(); const v = {}; for (const [k, inp] of Object.entries(inputs)) v[k] = inp.value; done(v); },
+      onsubmit: (e) => { e.preventDefault(); const v = {}; for (const [k, inp] of Object.entries(inputs)) v[k] = inp.checks ? inp.checks.filter((c) => c.checked).map((c) => c.value) : inp.value; done(v); },
     },
     el('h2', { text: title }),
     note ? el('p', { class: 'note', text: note }) : null,
     fields.map((f) => {
       let inp;
+      if (f.type === 'checks') {
+        const checks = [];
+        inp = el('div', { class: 'field-checks' }, f.options.map(([v, l]) => (v === null ? el('div', { class: 'checks-head', text: l })
+          : el('label', { class: 'check-row' }, (() => { const c = el('input', { type: 'checkbox', value: v }); c.checked = (f.value || []).includes(v); checks.push(c); return c; })(), el('span', { text: l })))));
+        inp.checks = checks;
+        inputs[f.key] = inp;
+        return el('div', { class: 'field' }, el('span', { class: 'field-label', text: f.label }), inp);
+      }
       if (f.type === 'select') inp = el('select', { class: 'field-input' }, f.options.map(([v, l]) => el('option', { value: v, text: l, selected: v === f.value })));
       else if (f.type === 'textarea') inp = el('textarea', { class: 'field-input', rows: 6, value: f.value || '' });
       else inp = el('input', { class: 'field-input', value: f.value || '', placeholder: f.placeholder || '', maxlength: f.maxlength || 80 });
@@ -2485,7 +2637,7 @@ function dialog({ title, note, fields, ok = 'OK' }) {
     document.addEventListener('keydown', esc, true);
     wrap.append(form); document.body.append(wrap);
     const first = Object.values(inputs)[0];
-    first?.focus(); first?.select?.();
+    if (first?.checks) first.checks[0]?.focus(); else { first?.focus(); first?.select?.(); }
   });
 }
 
@@ -2600,7 +2752,7 @@ async function importData(file) {
   } catch (err) { saveFailed(err); }
 }
 function normBox(b) { const t = Date.now(); return { id: String(b.id || uid()), name: cleanBoxName(b.name) || '名前なし', created: b.created || t, updated: b.updated || t, trashedAt: b.trashedAt || null }; }
-function normFolder(f) { const t = Date.now(); return { id: String(f.id || uid()), boxId: String(f.boxId), name: String(f.name || 'フォルダ'), created: f.created || t, updated: f.updated || t, trashedAt: f.trashedAt || null }; }
+function normFolder(f) { const t = Date.now(); return { id: String(f.id || uid()), boxId: String(f.boxId), name: String(f.name || 'フォルダ'), alsoBoxes: Array.isArray(f.alsoBoxes) ? f.alsoBoxes.map(String) : [], created: f.created || t, updated: f.updated || t, trashedAt: f.trashedAt || null }; }
 function normFile(f) {
   const t = Date.now();
   const pages = (Array.isArray(f.pages) && f.pages.length ? f.pages : [newPage()]).map((p) => ({
@@ -2614,7 +2766,7 @@ function normFile(f) {
     strokes: Array.isArray(p.strokes) ? p.strokes.filter((s) => Array.isArray(s.pts)) : [],
     conns: Array.isArray(p.conns) ? p.conns.filter((c) => c && c.from && c.to) : [],
   }));
-  return { id: String(f.id || uid()), boxId: String(f.boxId), folderId: String(f.folderId), name: String(f.name || '無題のメモ'), pages, created: f.created || t, updated: f.updated || t, trashedAt: f.trashedAt || null };
+  return { id: String(f.id || uid()), boxId: String(f.boxId), folderId: String(f.folderId), alsoFolders: Array.isArray(f.alsoFolders) ? f.alsoFolders.map(String) : [], name: String(f.name || '無題のメモ'), pages, created: f.created || t, updated: f.updated || t, trashedAt: f.trashedAt || null };
 }
 
 /* ===== トースト ===== */

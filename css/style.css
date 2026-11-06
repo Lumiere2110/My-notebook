@@ -814,3 +814,12 @@ body.editing .main { padding: 0; }
   .pages { padding: 4px 8px 80px; }
   .zoom-label { min-width: 42px; font-size: 12px; }
 }
+
+/* ===== 複数のボックス・フォルダに入れる ===== */
+.field-checks { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow: auto; padding: 4px; border: 1px solid var(--border); border-radius: 8px; }
+.checks-head { margin: 6px 4px 2px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.check-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.check-row:hover { background: var(--hover); }
+.folder-shared { display: inline-grid; place-items: center; color: var(--muted); }
+.folder-shared .ic { width: 14px; height: 14px; }
+.file-more-places, .where-more { margin-left: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
