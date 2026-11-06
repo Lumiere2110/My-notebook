@@ -767,7 +767,27 @@ function placeItem(d, it, dx = 0, dy = 0) {
   if (it.type === "sticky" || it.type === "image" || it.vert) d.style.height = it.h + "px";
   d.style.transform = (dx || dy ? `translate(${dx}px, ${dy}px) ` : '') + (it.rot ? `rotate(${it.rot}deg)` : '');
 }
+/* 文字を書き換えたとき、チェックの付いた行がずれないように付け直す（前後の変わらない行を手がかりにする） */
+function remapChecks(oldText, newText, checks) {
+  const a = oldText.split('\n'), b = newText.split('\n');
+  let p = 0;
+  while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let s = 0;
+  while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+  const out = Array(b.length).fill(false);
+  for (let i = 0; i < p; i++) out[i] = !!checks[i];
+  for (let k = 0; k < s; k++) out[b.length - 1 - k] = !!checks[a.length - 1 - k];
+  if (a.length === b.length) for (let i = p; i < b.length - s; i++) out[i] = !!checks[i];   // 行の中を書き換えただけ
+  return out;
+}
 function textView(it) {
+  if (it.type === 'sticky' && it.list && it.text) {               // 付箋のチェックリスト: 1行ごとにチェックボックス
+    return el('div', { class: 'txt list' }, String(it.text).split('\n').map((ln, i) => (ln.trim()
+      ? el('div', { class: 'li' + (it.checks?.[i] ? ' done' : '') },
+        el('input', { type: 'checkbox', class: 'ctl', checked: !!it.checks?.[i], dataset: { line: i }, 'aria-label': `${ln} をチェック` }),
+        el('span', { class: 'li-t' }, richText(ln, it.urls !== false)))
+      : el('div', { class: 'li empty' }, ' '))));
+  }
   return el('div', { class: 'txt' }, richText(it.text || '', it.urls !== false), it.text ? null : el('span', { class: 'ph', text: PLACEHOLDER[it.type] || '' }));
 }
 function tagChips(it) {
@@ -1400,7 +1420,8 @@ function renderItemSub(s, page, it) {
   const restyle = (fn) => (v) => { fn(v); commit(); renderPage(page); };
   if (it.type === 'text' || it.type === 'check') s.append(seg(TEXT_SIZES, it.size, restyle((v) => { it.size = v; ED.textSize = v; })), colorRow(INK, it.color, restyle((v) => { it.color = v; ED.textColor = v; })));
   if (it.type === 'sticky') s.append(colorRow(STICKY, stickyBg(it.color), restyle((v) => { it.color = v; ED.stickyColor = v; })),
-    seg(TEXT_SIZES.slice(0, 3), it.size, restyle((v) => { it.size = v; })));
+    seg(TEXT_SIZES.slice(0, 3), it.size, restyle((v) => { it.size = v; })),
+    toggleBtn('checkbox', 'チェックリスト', !!it.list, () => { it.list = !it.list; if (!it.list) delete it.checks; commit(); renderPage(page); renderSub(); }, '1行ごとにチェックボックスを付ける'));
   if (it.type === "text" || it.type === "sticky") s.append(seg([["h", "横書き"], ["v", "縦書き"]], it.vert ? "v" : "h", (v) => setVert(page, it, v === "v")));
   if (TEXTY.has(it.type)) {
     s.append(toggleBtn('link', 'URL判定', it.urls !== false, () => { it.urls = it.urls === false; commit(); renderPage(page); renderSub(); }, '文字の中の URL をクリックできるリンクにする'),
@@ -1556,6 +1577,7 @@ function bindEditor(root) {
     const d = ta.closest('.item'), stage = ta.closest('.stage');
     const it = pageById(stage.dataset.page)?.items.find((x) => x.id === d.dataset.id);
     if (!it) return;
+    if (it.list && it.checks?.length) it.checks = remapChecks(it.text || '', ta.value, it.checks);
     it.text = ta.value;
     if (it.type !== "sticky" && !it.vert) autosizeText(ta);
     const page = pageById(stage.dataset.page);
@@ -1590,7 +1612,12 @@ function bindEditor(root) {
     const d = c.closest('.item'), stage = c.closest('.stage');
     const it = pageById(stage.dataset.page)?.items.find((x) => x.id === d.dataset.id);
     if (!it) return;
-    if (c.type === 'checkbox') { it.checked = c.checked; d.classList.toggle('checked', c.checked); } else it.value = c.value;
+    if (c.dataset.line != null) {                                 // 付箋のチェックリストの1行
+      const lines = String(it.text || '').split('\n').length;
+      it.checks = Array.from({ length: lines }, (_, i) => !!it.checks?.[i]);
+      it.checks[+c.dataset.line] = c.checked;
+      c.closest('.li')?.classList.toggle('done', c.checked);
+    } else if (c.type === 'checkbox') { it.checked = c.checked; d.classList.toggle('checked', c.checked); } else it.value = c.value;
     commit();
   });
   root.addEventListener('focusout', (e) => {
