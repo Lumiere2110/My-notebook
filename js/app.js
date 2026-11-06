@@ -23,6 +23,8 @@ const ICONS = {
   copy: 'M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z',
   box: 'M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4l16-.02V7z',
   folder: 'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z',
+  zoomIn: 'M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zm.5-7H9v2H7v1h2v2h1v-2h2V9h-2z',
+  zoomOut: 'M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zM7 9h5v1H7z',
   folderOpen: 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z',
   arrowR: "M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z",
   shape: 'M12 2l-5.5 9h11L12 2zm5.5 11c-2.49 0-4.5 2.01-4.5 4.5S15.01 22 17.5 22s4.5-2.01 4.5-4.5-2.01-4.5-4.5-4.5zM3 21.5h8v-8H3v8z',
@@ -1013,17 +1015,30 @@ function openEditor(file) {
   ED.redoBtn = iconBtn('redo', 'やり直す（Ctrl+Y）', redo);
   ED.sub = el('div', { class: 'ed-sub' });
   ED.pagesBox = el('div', { class: 'pages' });
+  ED.scroller = el('div', { class: 'pages-scroll' }, ED.pagesBox);
+  ED.zoom = clamp(+pref('zoom', '1') || 1, ZOOMS[0], ZOOMS[ZOOMS.length - 1]);
+  ED.zoomBtn = el('button', { class: 'zoom-label', type: 'button', title: '拡大率（クリックで選ぶ）', onclick: (e) => { e.stopPropagation(); zoomMenu(e.currentTarget); } });
   ED.root = el('div', { class: 'ed tool-select' },
     el('div', { class: 'ed-top' },
       el('div', { class: 'ed-bar' },
         iconBtn('back', '戻る', () => go(ED.back)),
         el('div', { class: 'ed-title' }, nameInput, where),
-        el('div', { class: 'ed-hist' }, ED.undoBtn, ED.redoBtn,
+        el('div', { class: 'ed-hist' },
+          el('div', { class: 'zoom' }, iconBtn('zoomOut', '縮小（Ctrl + -）', () => stepZoom(-1), 'sm'), ED.zoomBtn, iconBtn('zoomIn', '拡大（Ctrl + +）', () => stepZoom(1), 'sm')),
+          ED.undoBtn, ED.redoBtn,
           iconBtn('more', 'その他', (e) => { e.stopPropagation(); editorMenu(e.currentTarget); })),
         makeTools([...ED.toolBtns, imgBtn, funcBtn])),
       ED.sub),
-    ED.pagesBox);
+    ED.scroller);
   $('#main').replaceChildren(ED.root);
+  applyZoom();
+  // Ctrl + ホイール（ノートパソコンではピンチ）で、カーソルの位置を中心に拡大・縮小
+  ED.scroller.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const z = clamp(ED.zoom * Math.exp(-e.deltaY * 0.0025), ZOOMS[0], ZOOMS[ZOOMS.length - 1]);
+    setZoom(z, e.clientX, e.clientY);
+  }, { passive: false });
   restoreTools();
   bindEditor(ED.root);
   // 文字を入力中に上のバーのボタン（大きさ・色など）を押しても、入力欄からフォーカスを外さない
@@ -1032,6 +1047,45 @@ function openEditor(file) {
   renderSub();
   updateHist();
   window.scrollTo(0, 0);
+}
+/* --- ページの拡大・縮小 --- */
+const ZOOMS = [0.25, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
+function applyZoom() {
+  if (!ED) return;
+  const avail = Math.max(240, ED.scroller.clientWidth - 32);
+  const base = Math.min(880, avail);                       // 100% = いつもの幅
+  ED.pagesBox.style.width = Math.round(base * ED.zoom) + 'px';
+  ED.zoomBtn.textContent = Math.round(ED.zoom * 100) + '%';
+}
+/* cx, cy（画面の座標）の場所が動かないように拡大率を変える。省略したら表示している場所のまん中 */
+function setZoom(z, cx, cy) {
+  if (!ED) return;
+  z = Math.round(clamp(z, ZOOMS[0], ZOOMS[ZOOMS.length - 1]) * 100) / 100;
+  if (z === ED.zoom) return;
+  const sc = ED.scroller, r = sc.getBoundingClientRect();
+  const px = (cx ?? r.left + r.width / 2) - r.left, py = (cy ?? r.top + r.height / 2) - r.top;
+  const pr = ED.pagesBox.getBoundingClientRect();
+  const fx = (r.left + px - pr.left) / pr.width, fy = (sc.scrollTop + py) / sc.scrollHeight;
+  ED.zoom = z;
+  setPref('zoom', String(z));
+  applyZoom();
+  ED.pagesBox.querySelectorAll('.page').forEach((f) => fitStage(f));
+  const pr2 = ED.pagesBox.getBoundingClientRect();
+  sc.scrollLeft += pr2.left + fx * pr2.width - (r.left + px);
+  sc.scrollTop = fy * sc.scrollHeight - py;
+}
+function stepZoom(d) {
+  const i = ZOOMS.findIndex((z) => z >= ED.zoom - 0.001);
+  const cur = i < 0 ? ZOOMS.length - 1 : i;
+  const next = d > 0 ? ZOOMS.find((z) => z > ED.zoom + 0.001) : [...ZOOMS].reverse().find((z) => z < ED.zoom - 0.001);
+  setZoom(next ?? ZOOMS[cur]);
+}
+function zoomMenu(anchor) {
+  showPopover(anchor, [
+    el('div', { class: 'pop-title', text: '拡大率' }),
+    ZOOMS.map((z) => el('button', { class: 'menu-item' + (Math.abs(z - ED.zoom) < 0.001 ? ' checked' : ''), type: 'button', onclick: () => { closePopover(); setZoom(z); } },
+      icon(Math.abs(z - ED.zoom) < 0.001 ? 'checkbox' : z < 1 ? 'zoomOut' : 'zoomIn'), `${Math.round(z * 100)}%` + (z === 1 ? '（いつもの大きさ）' : ''))),
+  ]);
 }
 /* --- ツールの欄（選択・範囲選択…）: 左端のつまみをドラッグすると好きな場所に動かせる --- */
 function makeTools(btns) {
@@ -2656,6 +2710,11 @@ async function init() {
       if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
       if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); return; }
     }
+    if (ED && (e.ctrlKey || e.metaKey) && !e.altKey) {           // Ctrl + + / - / 0 でページの拡大・縮小・元の大きさ
+      if (e.key === '+' || e.key === '=' || e.key === ';') { e.preventDefault(); stepZoom(1); return; }
+      if (e.key === '-') { e.preventDefault(); stepZoom(-1); return; }
+      if (e.key === '0') { e.preventDefault(); setZoom(1); return; }
+    }
     if (isTyping() || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === '/') { e.preventDefault(); search.focus(); return; }
     if (!ED) return;
@@ -2692,6 +2751,7 @@ async function init() {
   window.addEventListener('hashchange', () => { S.route = parseRoute(); render(); });
   window.addEventListener('resize', () => {
     if (!isNarrow()) closeNav();
+    applyZoom();
     const t = ED?.root.querySelector('.tools.floating');
     if (t) placeTools(t, parseFloat(t.style.left), parseFloat(t.style.top));
   });

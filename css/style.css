@@ -797,3 +797,20 @@ select.field-input { padding: 8px 9px; }
 .txt.list .li .ctl { flex: none; width: 1em; height: 1em; margin: .25em 0 0; box-sizing: border-box; accent-color: #2f6fd6; cursor: pointer; }
 .txt.list .li-t { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
 .txt.list .li.done .li-t { text-decoration: line-through; opacity: .55; }
+
+/* ===== ページの拡大・縮小（ページは専用のスクロール欄の中に出す） ===== */
+body.editing .main { padding: 0; }
+.ed { display: flex; flex-direction: column; height: calc(100vh - 64px); height: calc(100dvh - 64px); }
+.ed-top { position: relative; top: auto; flex: none; }
+.pages-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.pages { max-width: none; margin: 0 auto; padding: 8px 16px 80px; }
+.zoom { display: flex; align-items: center; margin-right: 4px; padding: 0 2px; border-radius: 18px; background: var(--surface-2); }
+.zoom-label {
+  min-width: 50px; padding: 4px 2px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.zoom-label:hover { background: var(--hover); }
+@media (max-width: 600px) {
+  .pages { padding: 4px 8px 80px; }
+  .zoom-label { min-width: 42px; font-size: 12px; }
+}
