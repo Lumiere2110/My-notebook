@@ -1515,6 +1515,28 @@ function bindEditor(root) {
     if (page.conns?.length) drawConns(stage, page);
     scheduleSave(); commitSoon(); updateHist();
   });
+  // チェックボックスの中で Shift+Enter → 下に新しいチェックボックスの行を作って続けて書ける
+  root.addEventListener('keydown', (e) => {
+    const ta = e.target;
+    if (ta.tagName !== 'TEXTAREA' || e.key !== 'Enter' || !e.shiftKey || e.isComposing) return;
+    const d = ta.closest('.item-check');
+    if (!d) return;
+    const page = pageById(ta.closest('.stage').dataset.page);
+    const it = page?.items.find((x) => x.id === d.dataset.id);
+    if (!it) return;
+    e.preventDefault();
+    const rest = ta.value.slice(ta.selectionEnd);
+    it.text = ta.value.slice(0, ta.selectionStart);
+    const { h } = dims(page);
+    const nx = { id: uid(), type: 'check', x: it.x, y: Math.round(Math.min(it.y + d.offsetHeight + 2, h - 50)), w: it.w, text: rest, checked: false, size: it.size, color: it.color };
+    if (it.rot) nx.rot = it.rot;
+    page.items.splice(page.items.indexOf(it) + 1, 0, nx);
+    ED.editId = null;
+    commit(); renderPage(page); select(page.id, nx.id);
+    startEditing(page, nx);
+    const nta = itemDiv(nx.id)?.querySelector('textarea');
+    nta?.setSelectionRange(0, 0);
+  });
   root.addEventListener('change', (e) => {
     const c = e.target;
     if (!c.classList?.contains('ctl')) return;
