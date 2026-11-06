@@ -991,6 +991,8 @@ function openEditor(file) {
   $('#main').replaceChildren(ED.root);
   restoreTools();
   bindEditor(ED.root);
+  // 文字を入力中に上のバーのボタン（大きさ・色など）を押しても、入力欄からフォーカスを外さない
+  ED.root.querySelector('.ed-top').addEventListener('mousedown', (e) => { if (ED?.editId && e.target.closest('button')) e.preventDefault(); });
   renderPages();
   renderSub();
   updateHist();
@@ -1156,11 +1158,15 @@ function renderPage(page) {
   const st = buildStage(page, true);
   st.style.transform = old.style.transform;
   st.style.setProperty('--inv', old.style.getPropertyValue('--inv'));
-  old.replaceWith(st);
+  const editing = ED.editId;
+  ED.rerendering = true;                                        // 描き直しで入力欄が消えても「入力をやめた」扱いにしない
+  try { old.replaceWith(st); } finally { ED.rerendering = false; }
   if (page.conns?.length) drawConns(st, page);
-  if (ED.editId && !itemDiv(ED.editId)) ED.editId = null;
+  ED.editId = null;
   markSel();
   drawLassoBox();
+  const it = editing && page.items.find((i) => i.id === editing);
+  if (it && TEXTY.has(it.type)) startEditing(page, it);         // 入力中だったら入力を続けられるようにする
 }
 function autosizeText(ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
 function addPage(i) {
@@ -1314,6 +1320,10 @@ function renderSub() {
   } else if (t === 'sticky') {
     s.append(el('span', { class: 'sub-label', text: '付箋' }), colorRow(STICKY, ED.stickyColor, (v) => { ED.stickyColor = v; }),
       hint('貼りたい場所をクリック'));
+  } else if (t === 'check') {
+    s.append(el('span', { class: 'sub-label', text: 'チェックボックス' }),
+      seg(TEXT_SIZES, ED.textSize, (v) => { ED.textSize = v; }), colorRow(INK, ED.textColor, (v) => { ED.textColor = v; }),
+      hint('置きたい場所をクリック（Esc でやめる）'));
   } else if (t === 'shape') {
     const cfg = ED.shape;
     s.append(el('span', { class: 'sub-label', text: '図形' }),
@@ -1440,11 +1450,13 @@ function startEditing(page, it) {
   ta.focus({ preventScroll: true });
   const n = ta.value.length; ta.setSelectionRange(n, n);
 }
-function stopEditing(page, it, d, ta) {
+function stopEditing(page, it, d, ta, rel) {
   if (!ED || ED.editId !== it.id) return;
   ED.editId = null;
   d.classList.remove('editing');
-  if (it.type === 'text' && !it.text.trim() && page.items.includes(it)) {
+  // 空のテキストボックスは片付ける。ただし上のバーやメニューを操作しただけ（文字の大きさ・色を変えるなど）のときは残す
+  const toBar = !!rel?.closest?.('.ed-top, .popover, .modal-wrap');
+  if ((it.type === 'text' || it.type === 'check') && !it.text.trim() && page.items.includes(it) && !toBar) {
     page.items = page.items.filter((x) => x !== it);
     d.remove();
     if (ED.sel?.itemId === it.id) select(null);
@@ -1518,7 +1530,7 @@ function bindEditor(root) {
     const d = ta.closest('.item'), stage = ta.closest('.stage');
     const page = stage && pageById(stage.dataset.page);
     const it = page?.items.find((x) => x.id === d.dataset.id);
-    if (it) stopEditing(page, it, d, ta);
+    if (it && !ED.rerendering) stopEditing(page, it, d, ta, e.relatedTarget);
   });
   root.addEventListener('drop', (e) => {
     const files = imageFilesFrom(e.dataTransfer);
@@ -1545,7 +1557,7 @@ function onStageDown(e, stage) {
   const d = e.target.closest('.item');
   if (d) { if (ED.lasso) clearLasso(); return onItemDown(e, stage, page, d, pt); }
   if (document.activeElement?.closest?.('.stage')) document.activeElement.blur();
-  if (tool === 'text' || tool === 'sticky') { e.preventDefault(); createItem(page, tool, pt); setTool('select'); return; }
+  if (tool === 'text' || tool === 'sticky' || tool === 'check') { e.preventDefault(); createItem(page, tool, pt); setTool('select'); return; }
   // 選択ツールで線や図形をクリック → その線を選ぶ（そのままドラッグで移動もできる）
   if (ED.lasso) clearLasso();
   const ch = hitConn(stage, page, pt);
@@ -1641,6 +1653,9 @@ function createItem(page, type, pt) {
       it.x = Math.round(clamp(pt.x - 100, 0, w - 200)); it.y = Math.round(clamp(pt.y - 20, 0, h - 120));
       it.h = Math.round(Math.min(480, h - it.y));
     }
+  } else if (type === 'check') {
+    const x = clamp(pt.x - ED.textSize * 0.7, 0, w - 160);
+    it = { id: uid(), type: 'check', x: Math.round(x), y: Math.round(clamp(pt.y - ED.textSize * 0.9, 0, h - 60)), w: Math.round(Math.min(420, w - x)), text: '', checked: false, size: ED.textSize, color: ED.textColor };
   } else {
     it = { id: uid(), type: 'sticky', x: Math.round(clamp(pt.x - 120, 0, w - 240)), y: Math.round(clamp(pt.y - 20, 0, h - 220)), w: 240, h: 220, text: '', size: 24, color: ED.stickyColor };
   }
@@ -2203,8 +2218,10 @@ async function addFuncItem(type) {
     ], ok: '作成' });
     if (!v) return;
     it = { id: uid(), type: 'link', w: 340, target: v.target, label: v.label.trim(), size: 24 };
-  } else if (type === 'check') {
-    it = { id: uid(), type: 'check', w: 420, text: '', checked: false, size: ED.textSize, color: ED.textColor };
+  } else if (type === 'check') {                                // テキストボックスと同じく、クリックした場所に置く
+    setTool('check');
+    toast('チェックボックスを置きたい場所をクリックしてください（Esc でやめる）');
+    return;
   } else {
     const v = await dialog({ title: 'プルダウンを作る', fields: [{ key: 'opts', type: 'textarea', label: '選択肢（1行に1つ）', value: '選択肢1\n選択肢2\n選択肢3' }], ok: '作成' });
     if (!v) return;
@@ -2271,7 +2288,8 @@ let pop = null;
 function closePopover() { if (pop) { pop.remove(); pop = null; } }
 function showPopover(anchor, content, cls = '') {
   closePopover();
-  pop = el('div', { class: 'popover ' + cls, role: 'dialog', onclick: (e) => e.stopPropagation() }, content);
+  pop = el('div', { class: 'popover ' + cls, role: 'dialog', onclick: (e) => e.stopPropagation(),
+    onmousedown: (e) => { if (ED?.editId && e.target.closest('button')) e.preventDefault(); } }, content);
   document.body.append(pop);
   const r = anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor;
   const w = pop.offsetWidth, h = pop.offsetHeight;

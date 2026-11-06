@@ -780,3 +780,4 @@ select.field-input { padding: 8px 9px; }
 .item.vert .txt, .item.vert textarea { writing-mode: vertical-rl; text-orientation: mixed; height: 100%; width: 100%; padding: 8px 4px; overflow: visible; }
 .item-sticky.vert .txt, .item-sticky.vert textarea { height: 100%; padding: 10px 12px; overflow: hidden; }
 .item-text.vert .item-tags { position: absolute; left: 0; top: 100%; padding: 4px 0 0; }
+.ed.tool-check .stage, .ed.tool-check .item { cursor: copy; }
