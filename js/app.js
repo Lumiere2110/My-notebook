@@ -24,6 +24,7 @@ const ICONS = {
   box: 'M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4l16-.02V7z',
   folder: 'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z',
   folderOpen: 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z',
+  arrowR: "M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z",
   shape: 'M12 2l-5.5 9h11L12 2zm5.5 11c-2.49 0-4.5 2.01-4.5 4.5S15.01 22 17.5 22s4.5-2.01 4.5-4.5-2.01-4.5-4.5-4.5zM3 21.5h8v-8H3v8z',
   folders: 'M3 6H1v13c0 1.1.9 2 2 2h17v-2H3V6zm18-2h-7l-2-2H7c-1.1 0-1.99.9-1.99 2L5 15c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z',
   file: 'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
@@ -161,7 +162,16 @@ const OPEN_SHAPES = new Set(['line', 'arrow']);
 const TEXTY = new Set(['text', 'sticky', 'check']);
 const ITEM_LABEL = { text: 'テキストボックス', sticky: '付箋', image: '画像', check: 'チェックボックス', select: 'プルダウン', link: 'メモへ移動ボタン' };
 const PLACEHOLDER = { text: 'テキストを入力', sticky: '付箋', check: '項目' };
-function newPage(bg = 'lined', paper = PAPER_COLORS[0][0], orient = 'port') { return { id: uid(), bg, paper, orient, items: [], strokes: [] }; }
+function newPage(bg = 'lined', paper = PAPER_COLORS[0][0], orient = 'port') { return { id: uid(), bg, paper, orient, items: [], strokes: [], conns: [] }; }
+/* ページを複製したとき、アイテムの新しい id に合わせて矢印のつなぎ先も付け替える */
+function remapPage(p) {
+  const map = new Map();
+  p.id = uid();
+  p.items.forEach((x) => { const n = uid(); map.set(x.id, n); x.id = n; });
+  p.strokes.forEach((x) => { x.id = uid(); });
+  p.conns = (p.conns || []).filter((c) => map.has(c.from) && map.has(c.to)).map((c) => ({ ...c, id: uid(), from: map.get(c.from), to: map.get(c.to) }));
+  return p;
+}
 
 /* ===== 用紙の模様（SVG） ===== */
 const paperCache = new Map();
@@ -497,7 +507,7 @@ function renderBox(main, box, folderId) {
 
 /* --- 検索結果（#タグ でタグを探せる） --- */
 function fileText(f) {
-  return f.pages.flatMap((p) => p.items.flatMap((i) => [i.text || '', i.label || '', ...(i.options || []), ...(i.tags || []).map((t) => '#' + t)])).join('\n');
+  return f.pages.flatMap((p) => [...p.items.flatMap((i) => [i.text || '', i.label || '', ...(i.options || []), ...(i.tags || []).map((t) => '#' + t)]), ...(p.conns || []).map((c) => c.label || '')]).join('\n');
 }
 function renderSearch(main, q) {
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -693,7 +703,7 @@ async function moveFile(f) {
 }
 function cloneFile(f) {
   const t = Date.now();
-  const pages = JSON.parse(JSON.stringify(f.pages)).map((p) => ({ ...p, id: uid(), items: p.items.map((i) => ({ ...i, id: uid() })), strokes: p.strokes.map((s) => ({ ...s, id: uid() })) }));
+  const pages = JSON.parse(JSON.stringify(f.pages)).map(remapPage);
   const c = { ...f, id: uid(), name: f.name + ' のコピー', pages, created: t, updated: t, trashedAt: null };
   S.files.push(c); put('files', c);
   if (!ED) render();
@@ -772,7 +782,7 @@ function itemEl(it, edit) {
     default: d.append(textView(it));
   }
   if (TEXTY.has(it.type)) { const c = tagChips(it); if (c) d.append(c); }
-  if (edit) d.append(el('div', { class: 'h-move', title: '移動' }, icon('move4')), el('div', { class: 'h-resize', title: '大きさを変える' }), el("div", { class: "h-del", title: "削除" }, icon("trash")), el('div', { class: 'lock-badge', title: '固定中' }, icon('lock')));
+  if (edit) d.append(el('div', { class: 'h-move', title: '移動' }, icon('move4')), el('div', { class: 'h-resize', title: '大きさを変える' }), el("div", { class: "h-del", title: "削除" }, icon("trash")), el("div", { class: "h-conn", title: "ドラッグして別の付箋につなぐ（矢印）" }, icon("arrowR")), el('div', { class: 'lock-badge', title: '固定中' }, icon('lock')));
   return d;
 }
 function buildStage(page, edit) {
@@ -787,7 +797,157 @@ function buildStage(page, edit) {
   const ink = svgEl('svg', { class: 'ink', viewBox: `0 0 ${w} ${h}`, 'aria-hidden': 'true' });
   for (const s of page.strokes) ink.append(strokeEl(s));
   stage.append(items, ink);
+  drawConns(stage, page);
   return stage;
+}
+
+/* ===== 付箋どうしをつなぐ矢印（一方向・双方向・線だけ、補足文字つき） ===== */
+const CONN_DIR = [['one', '→ 一方向'], ['both', '⇄ 双方向'], ['none', '― 線だけ']];
+const CONN_W = [[2, '細'], [3, '中'], [5, '太']];
+function estH(it) {
+  if (TEXTY.has(it.type)) return Math.max(30, String(it.text || '').split('\n').length * (it.size || 24) * 1.5 + 10);
+  return (it.size || 24) * 1.8;
+}
+function itemRect(stage, it) {
+  let h = it.h;
+  if (h == null) h = stage?.querySelector(`.item[data-id="${it.id}"]`)?.offsetHeight || estH(it);
+  return { x: it.x, y: it.y, w: it.w, h };
+}
+/* 箱の中心から相手の方向へ伸ばした線が、箱のふちと交わる点（少しすき間をあける） */
+function edgePt(r, tx, ty, gap) {
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2, dx = tx - cx, dy = ty - cy;
+  const L = Math.hypot(dx, dy);
+  if (!L) return [cx, cy];
+  const t = Math.min(dx ? r.w / 2 / Math.abs(dx) : Infinity, dy ? r.h / 2 / Math.abs(dy) : Infinity);
+  return [cx + dx * t + (dx / L) * gap, cy + dy * t + (dy / L) * gap];
+}
+function connGeom(stage, page, c) {
+  const A = page.items.find((i) => i.id === c.from), B = page.items.find((i) => i.id === c.to);
+  if (!A || !B) return null;
+  const ra = itemRect(stage, A), rb = itemRect(stage, B);
+  const ca = [ra.x + ra.w / 2, ra.y + ra.h / 2], cb = [rb.x + rb.w / 2, rb.y + rb.h / 2];
+  return { a: edgePt(ra, cb[0], cb[1], 6), b: edgePt(rb, ca[0], ca[1], 6) };
+}
+function headD(tip, from, size) {
+  const ang = Math.atan2(tip[1] - from[1], tip[0] - from[0]), sp = 0.45;
+  const p1 = [tip[0] - Math.cos(ang - sp) * size, tip[1] - Math.sin(ang - sp) * size];
+  const p2 = [tip[0] - Math.cos(ang + sp) * size, tip[1] - Math.sin(ang + sp) * size];
+  return `M${r1(tip[0])} ${r1(tip[1])}L${r1(p1[0])} ${r1(p1[1])}L${r1(p2[0])} ${r1(p2[1])}Z`;
+}
+function connEl(stage, page, c) {
+  const g = connGeom(stage, page, c);
+  if (!g) return null;
+  const { a, b } = g;
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len < 4) return null;
+  const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len;
+  const size = 12 + c.width * 2.5, heads = [];
+  let a2 = a, b2 = b;
+  if (c.dir !== 'none') { heads.push(headD(b, a, size)); b2 = [b[0] - ux * size * 0.7, b[1] - uy * size * 0.7]; }
+  if (c.dir === 'both') { heads.push(headD(a, b, size)); a2 = [a[0] + ux * size * 0.7, a[1] + uy * size * 0.7]; }
+  const line = `M${r1(a2[0])} ${r1(a2[1])}L${r1(b2[0])} ${r1(b2[1])}`;
+  const sel = ED?.csel?.id === c.id;
+  const grp = svgEl('g', { class: 'conn' + (sel ? ' sel' : ''), 'data-cid': c.id });
+  if (sel) grp.append(svgEl('path', { d: line, fill: 'none', stroke: '#2f6fd6', 'stroke-opacity': 0.35, 'stroke-width': c.width + 12, 'stroke-linecap': 'round' }));
+  grp.append(svgEl('path', { d: line, fill: 'none', stroke: c.color, 'stroke-width': c.width, 'stroke-linecap': 'round', 'stroke-dasharray': c.dash ? `${c.width * 3} ${c.width * 2.5}` : null }));
+  if (heads.length) grp.append(svgEl('path', { d: heads.join(''), fill: c.color, stroke: c.color, 'stroke-width': c.width * 0.6, 'stroke-linejoin': 'round' }));
+  if (c.label) {                                                // 補足文字は線のまん中に（紙の色でふちどりして読みやすく）
+    const fs = c.lsize || 20, lines = String(c.label).split('\n');
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    const t = svgEl('text', { x: r1(mx), y: r1(my - ((lines.length - 1) * fs * 1.25) / 2), 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: c.color, class: 'conn-label', stroke: page.paper || PAPER_COLORS[0][0], 'stroke-width': fs * 0.35, 'paint-order': 'stroke', 'stroke-linejoin': 'round' });
+    lines.forEach((ln, i) => { const sp = svgEl('tspan', { x: r1(mx), dy: i ? fs * 1.25 : 0 }); sp.textContent = ln; t.append(sp); });
+    grp.append(t);
+  }
+  return grp;
+}
+function drawConns(stage, page) {
+  const ink = stage?.querySelector('.ink');
+  if (!ink) return;
+  ink.querySelectorAll('.conn').forEach((n) => n.remove());
+  const first = ink.firstChild;
+  for (const c of page.conns || []) { const g = connEl(stage, page, c); if (g) ink.insertBefore(g, first); }
+}
+function hitConn(stage, page, pt) {
+  return (page.conns || []).slice().reverse().find((c) => {
+    const g = connGeom(stage, page, c);
+    if (!g) return false;
+    if (distSeg(pt.x, pt.y, g.a, g.b) < c.width / 2 + 10) return true;
+    if (!c.label) return false;
+    const fs = c.lsize || 20, lines = String(c.label).split('\n');
+    const w = Math.max(...lines.map((l) => l.length)) * fs * 0.55 + 10, h = lines.length * fs * 1.25 + 8;
+    return Math.abs(pt.x - (g.a[0] + g.b[0]) / 2) < w && Math.abs(pt.y - (g.a[1] + g.b[1]) / 2) < h / 2 + 4;
+  });
+}
+function addConn(page, from, to) {
+  if (from === to) return;
+  page.conns = page.conns || [];
+  if (page.conns.some((c) => (c.from === from && c.to === to) || (c.from === to && c.to === from))) { toast('もうつながっています'); return; }
+  const c = { id: uid(), from, to, dir: pref('connDir', 'one'), color: '#555555', width: 3, label: '' };
+  page.conns.push(c);
+  commit();
+  selectConn(page, c.id);
+  toast('矢印でつなぎました。上のバーで向き（一方向・双方向）や補足文字を変えられます');
+}
+function selectConn(page, id) {
+  select(null);
+  ED.csel = { pageId: page.id, id };
+  drawConns(stageOf(page.id), page);
+  renderSub();
+}
+function clearConnSel() {
+  if (!ED?.csel) return;
+  const p = pageById(ED.csel.pageId);
+  ED.csel = null;
+  if (p) drawConns(stageOf(p.id), p);
+}
+function deleteConn() {
+  const page = ED.csel && pageById(ED.csel.pageId);
+  if (!page) return;
+  page.conns = (page.conns || []).filter((c) => c.id !== ED.csel.id);
+  ED.csel = null;
+  commit(); drawConns(stageOf(page.id), page); renderSub();
+}
+function renderConnSub(s) {
+  const page = pageById(ED.csel.pageId), c = page?.conns?.find((x) => x.id === ED.csel.id);
+  if (!c) { ED.csel = null; renderSub(); return; }
+  const redraw = () => drawConns(stageOf(page.id), page);
+  const upd = (fn) => (v) => { fn(v); commit(); redraw(); };
+  const lb = el('input', { class: 'sub-input', value: c.label || '', placeholder: '補足文字（例: 理由、だから、次に）', 'aria-label': '矢印の補足文字', maxlength: 60 });
+  lb.addEventListener('input', () => { c.label = lb.value; redraw(); scheduleSave(); commitSoon(); updateHist(); });
+  lb.addEventListener('change', () => commit());
+  lb.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) lb.blur(); });
+  s.append(el('span', { class: 'sub-label', text: '矢印' }),
+    seg(CONN_DIR, c.dir, upd((v) => { c.dir = v; setPref('connDir', v); })),
+    el('button', { class: 'btn small', type: 'button', text: '向きを反対に', onclick: () => { [c.from, c.to] = [c.to, c.from]; commit(); redraw(); } }),
+    lb,
+    seg([[16, '小'], [20, '中'], [28, '大']], c.lsize || 20, upd((v) => { c.lsize = v; })),
+    colorRow(INK, c.color, upd((v) => { c.color = v; })),
+    seg(CONN_W, c.width, upd((v) => { c.width = v; })),
+    seg([['solid', '実線'], ['dash', '点線']], c.dash ? 'dash' : 'solid', upd((v) => { c.dash = v === 'dash'; })),
+    el('span', { class: 'spacer' }),
+    iconBtn('trash', '矢印を削除（Delete）', deleteConn, 'sm'));
+  return lb;
+}
+function dragConn(e, stage, page, it) {
+  const loc = localizer(stage), ink = stage.querySelector('.ink');
+  const r = itemRect(stage, it);
+  const tmp = svgEl('path', { class: 'conn-temp', d: '' });
+  ink.append(tmp);
+  const target = (ev) => {
+    const t = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.item');
+    return t && stage.contains(t) && t.dataset.id !== it.id ? t : null;
+  };
+  const unmark = () => stage.querySelectorAll('.item.conn-target').forEach((n) => n.classList.remove('conn-target'));
+  track(e, (ev) => {
+    const p = loc(ev), a = edgePt(r, p.x, p.y, 6);
+    tmp.setAttribute('d', `M${r1(a[0])} ${r1(a[1])}L${r1(p.x)} ${r1(p.y)}`);
+    unmark(); target(ev)?.classList.add('conn-target');
+  }, (ev) => {
+    tmp.remove(); unmark();
+    const t = target(ev);
+    if (t) addConn(page, it.id, t.dataset.id);
+    else toast('つなぎたい付箋の上で離してください');
+  });
 }
 
 /* ===== エディター ===== */
@@ -857,6 +1017,10 @@ function flushSave() {
 function commit() {
   if (!ED) return;
   clearTimeout(ED.commitT); ED.commitT = null;
+  for (const p of ED.file.pages) if (p.conns?.length) {          // 消えたアイテムにつながった矢印は片付ける
+    const ids = new Set(p.items.map((i) => i.id));
+    p.conns = p.conns.filter((c) => ids.has(c.from) && ids.has(c.to));
+  }
   const now = JSON.stringify(ED.file.pages);
   if (now === ED.snap) { updateHist(); return; }
   ED.undo.push(ED.snap);
@@ -913,6 +1077,7 @@ function renderPages() {
     ED.pagesBox.append(el('div', { class: 'page-wrap' + (p.orient === 'land' ? ' land' : '') }, head, frame));
     fitRO.observe(frame);
     fitStage(frame);
+    if (p.conns?.length) drawConns(frame.querySelector('.stage'), p);
   });
   ED.pagesBox.append(el('button', { class: 'add-page', type: 'button', onclick: () => addPage(pages.length - 1) }, icon('addPage'), 'ページを追加'));
   markSel();
@@ -925,6 +1090,7 @@ function renderPage(page) {
   st.style.transform = old.style.transform;
   st.style.setProperty('--inv', old.style.getPropertyValue('--inv'));
   old.replaceWith(st);
+  if (page.conns?.length) drawConns(st, page);
   if (ED.editId && !itemDiv(ED.editId)) ED.editId = null;
   markSel();
   drawLassoBox();
@@ -940,7 +1106,7 @@ function addPage(i) {
 function dupPage(i) {
   const src = ED.file.pages[i];
   const p = JSON.parse(JSON.stringify(src));
-  p.id = uid(); p.items.forEach((x) => { x.id = uid(); }); p.strokes.forEach((x) => { x.id = uid(); });
+  remapPage(p);
   ED.file.pages.splice(i + 1, 0, p);
   commit(); renderPages();
   toast(`${i + 2}ページ目に複製しました`);
@@ -1004,7 +1170,7 @@ function setTool(t) {
   ED.tool = t;
   ED.toolBtns.forEach((b) => b.setAttribute('aria-pressed', b.dataset.tool === t ? 'true' : 'false'));
   ED.root.className = 'ed tool-' + t;
-  if (ED.lasso && t !== "lasso" && t !== "select") clearLasso();
+  if (ED.lasso && t !== "lasso" && t !== "select") clearLasso(); if (ED.csel) clearConnSel();
   if (t !== 'select') {
     if (document.activeElement?.closest?.('.stage')) document.activeElement.blur();
     select(null);
@@ -1088,6 +1254,8 @@ function renderSub() {
       seg(PEN_W, cfg.width, (v) => { cfg.width = v; }),
       OPEN_SHAPES.has(cfg.kind) ? null : seg(FILLS, cfg.fill, (v) => { cfg.fill = v; }),
       hint('ドラッグで描きます（Shift で正円・正方形、直線は15°ずつ）。クリックだけで決まった大きさに置けます'));
+  } else if (ED.csel) {
+    renderConnSub(s);
   } else if (t === 'lasso' || ED.lasso) {
     renderLassoSub(s);
   } else if (sel) {
@@ -1136,6 +1304,7 @@ function renderItemSub(s, page, it) {
     iconBtn('rotR', '右に15°回転', () => { it.rot = r1(((it.rot || 0) + 15) % 360); commit(); renderPage(page); }, 'sm'),
     iconBtn('front', '前面へ', () => { page.items = page.items.filter((x) => x !== it).concat(it); commit(); renderPage(page); }, 'sm'),
     iconBtn('back2', '背面へ', () => { page.items = [it, ...page.items.filter((x) => x !== it)]; commit(); renderPage(page); }, 'sm'),
+    el("button", { class: "btn small", type: "button", title: "押したあと、つなぐ先の付箋をクリック", onclick: () => { ED.connectFrom = { pageId: page.id, itemId: it.id }; toast("つなぐ先の付箋をクリックしてください（Esc でやめる）"); } }, icon("arrowR"), "矢印でつなぐ"),
     iconBtn('copy', '複製', () => duplicateItem(page, it), 'sm'),
     iconBtn('lock', '固定', () => { it.locked = true; if (ED.editId === it.id) document.activeElement?.blur(); commit(); renderPage(page); renderSub(); }, 'sm'),
     iconBtn('trash', '削除（Delete）', () => deleteSelected(), 'sm'));
@@ -1150,6 +1319,8 @@ async function editItemTags(page, it) {
 /* --- 選択 --- */
 function select(pageId, itemId) {
   if (!ED) return;
+  if (ED.csel) clearConnSel();
+  ED.connectFrom = null;
   ED.sel = pageId ? { pageId, itemId } : null;
   markSel(); renderSub();
 }
@@ -1165,6 +1336,7 @@ function deleteSelected() {
   ED.editId = null;
   itemDiv(s.it.id)?.remove();
   select(null); commit(); renderNav();
+  drawConns(stageOf(s.page.id), s.page);
 }
 function duplicateItem(page, it) {
   const { w, h } = dims(page);
@@ -1199,6 +1371,7 @@ function stopEditing(page, it, d, ta) {
     d.querySelector('.item-tags')?.remove();
     const c = tagChips(it); if (c) d.querySelector('.h-move')?.before(c);
   }
+  if (page.conns?.length) drawConns(stageOf(page.id), page);
   commit();
   renderNav();
 }
@@ -1244,6 +1417,8 @@ function bindEditor(root) {
     if (!it) return;
     it.text = ta.value;
     if (it.type !== 'sticky') autosizeText(ta);
+    const page = pageById(stage.dataset.page);
+    if (page.conns?.length) drawConns(stage, page);
     scheduleSave(); commitSoon(); updateHist();
   });
   root.addEventListener('change', (e) => {
@@ -1291,6 +1466,13 @@ function onStageDown(e, stage) {
   if (tool === 'text' || tool === 'sticky') { e.preventDefault(); createItem(page, tool, pt); setTool('select'); return; }
   // 選択ツールで線や図形をクリック → その線を選ぶ（そのままドラッグで移動もできる）
   if (ED.lasso) clearLasso();
+  const ch = hitConn(stage, page, pt);
+  if (ch) {                                                    // 矢印をクリック → 選ぶ（ダブルクリックで補足文字の入力へ）
+    e.preventDefault();
+    selectConn(page, ch.id);
+    if (e.detail >= 2) setTimeout(() => ED?.sub.querySelector('.sub-input')?.focus(), 0);
+    return;
+  }
   const hit = [...page.strokes].reverse().find((x) => hitStroke(x, pt, x.width / 2 + 8) || (x.fill && x.pts.length > 2 && inPoly(pt.x, pt.y, x.pts)));
   if (hit) {
     e.preventDefault();
@@ -1389,6 +1571,8 @@ function openLink(it) {
 function onItemDown(e, stage, page, d, pt) {
   const it = page.items.find((x) => x.id === d.dataset.id);
   if (!it) return;
+  if (e.target.closest(".h-conn")) { e.preventDefault(); if (ED.sel?.itemId !== it.id) select(page.id, it.id); return dragConn(e, stage, page, it); }
+  if (ED.connectFrom) { const cf = ED.connectFrom; ED.connectFrom = null; if (cf.pageId === page.id && cf.itemId !== it.id) { e.preventDefault(); addConn(page, cf.itemId, it.id); return; } }
   if (e.target.closest(".h-del")) { e.preventDefault(); if (ED.editId === it.id) ED.editId = null; select(page.id, it.id); deleteSelected(); return; }
   const handle = e.target.closest('.h-resize') ? 'resize' : e.target.closest('.h-move') ? 'move' : null;
   if (!handle && ED.editId === it.id && e.target.tagName === 'TEXTAREA') return;   // 入力中の文字の操作はそのまま
@@ -1418,11 +1602,13 @@ function onItemDown(e, stage, page, d, pt) {
       else it.w = Math.round(clamp(o.w + dx, 80, W * 1.5));
       placeItem(d, it);
       const ta = d.querySelector('textarea'); if (ta && it.type !== 'sticky') autosizeText(ta);
+      if (page.conns?.length) drawConns(stage, page);
     } else {
       // 動かしている間は transform だけ変える（レイアウトを計算し直さないので速い）
       it.x = Math.round(clamp(o.x + dx, 40 - it.w, W - 40));
       it.y = Math.round(clamp(o.y + dy, -20, H - 40));
       placeItem(d, { ...it, x: o.x, y: o.y }, it.x - o.x, it.y - o.y);
+      if (page.conns?.length) drawConns(stage, page);
     }
   }, () => {
     d.classList.remove('dragging');
@@ -1681,6 +1867,7 @@ function erase(e, stage, page, pt) {
     cur.setAttribute('cx', p.x); cur.setAttribute('cy', p.y);
     const r = eraseAt(page, ink, p, R, whole);
     changed ||= r.changed; lockedHit ||= r.lockedHit;
+    if (page.conns?.length) { const n = page.conns.length; page.conns = page.conns.filter((c) => { const g = connGeom(stage, page, c); return !g || distSeg(p.x, p.y, g.a, g.b) >= R + c.width / 2; }); if (page.conns.length !== n) { changed = true; drawConns(stage, page); } }
   };
   hit(pt);
   track(e, (ev) => (ev.getCoalescedEvents?.() || [ev]).forEach((x) => hit(loc(x))), () => {
@@ -1742,23 +1929,33 @@ function startLasso(e, stage, page, pt) {
   const poly = [[pt.x, pt.y]];
   const ink = stage.querySelector('.ink');
   const path = svgEl('path', { class: 'lasso-path', d: '' });
-  ink.append(path);
+  const closer = svgEl('path', { class: 'lasso-closer', d: '' });
+  ink.append(path, closer);
   const tapItem = e.target.closest('.item');
   track(e, (ev) => {
     const p = loc(ev);
     const l = poly[poly.length - 1];
     if (Math.hypot(p.x - l[0], p.y - l[1]) < 3) return;
     poly.push([p.x, p.y]);
-    path.setAttribute('d', 'M' + poly.map((q) => q.join(' ')).join('L') + 'Z');
+    path.setAttribute('d', 'M' + poly.map((q) => q.join(' ')).join('L'));
+    closer.setAttribute('d', `M${p.x} ${p.y}L${poly[0][0]} ${poly[0][1]}`);     // 始点と終点を結ぶ線（ここまでが選ぶ範囲）
   }, () => {
-    path.remove();
+    path.remove(); closer.remove();
     const L = { pageId: page.id, strokes: new Set(), items: new Set() };
     if (pathLen(poly) < 12) {                                   // タップ: その場所のものを1つ選ぶ
       if (tapItem) L.items.add(tapItem.dataset.id);
       else { const s = [...page.strokes].reverse().find((x) => hitStroke(x, pt, x.width / 2 + 8)); if (s) L.strokes.add(s.id); }
     } else {
-      for (const s of page.strokes) { const n = s.pts.filter((q) => inPoly(q[0], q[1], poly)).length; if (n && n >= s.pts.length * 0.5) L.strokes.add(s.id); }
-      for (const it of page.items) if (inPoly(it.x + it.w / 2, it.y + itemH(it) / 2, poly)) L.items.add(it.id);
+      // なぞった線を周にして（途中で切れていたら始点と終点を結んで）、その中に少しでも入っているものを全部選ぶ
+      for (const s of page.strokes) {
+        if (densify(s.pts, 4).some((q) => inPoly(q[0], q[1], poly)) || (s.fill && s.pts.length > 2 && poly.some((q) => inPoly(q[0], q[1], s.pts)))) L.strokes.add(s.id);
+      }
+      for (const it of page.items) {
+        const h = itemH(it), x1 = it.x + it.w, y1 = it.y + h;
+        const probe = [];
+        for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) probe.push([it.x + (it.w * i) / 4, it.y + (h * j) / 4]);
+        if (probe.some((q) => inPoly(q[0], q[1], poly)) || poly.some((q) => q[0] >= it.x && q[0] <= x1 && q[1] >= it.y && q[1] <= y1)) L.items.add(it.id);
+      }
     }
     if (L.strokes.size || L.items.size) { ED.lasso = L; drawLassoBox(); }
     renderSub();
@@ -1796,6 +1993,7 @@ function applyGroup(page, L, snap, t) {
     it.x = Math.round(c[0] - w / 2); it.y = Math.round(c[1] - hp / 2);
     const d = itemDiv(it.id);
     if (d) { placeItem(d, it); if (it.size) d.style.fontSize = it.size + 'px'; }
+    if (page.conns?.length) drawConns(stage, page);
   }
 }
 function lassoTransform(e, stage, page, pt, lb) {
@@ -1873,6 +2071,8 @@ function lassoDuplicate(page, L) {
   const N = { pageId: page.id, strokes: new Set(), items: new Set() };
   for (const s of strokes) { const c = { ...s, id: uid(), pts: s.pts.map((q) => [q[0] + 24, q[1] + 24]) }; page.strokes.push(c); N.strokes.add(c.id); }
   for (const it of items) { const c = { ...JSON.parse(JSON.stringify(it)), id: uid(), x: it.x + 24, y: it.y + 24 }; page.items.push(c); N.items.add(c.id); }
+  const map = new Map(); items.forEach((it, i) => map.set(it.id, [...N.items][i]));
+  for (const c of (page.conns || []).filter((c) => map.has(c.from) && map.has(c.to))) page.conns.push({ ...c, id: uid(), from: map.get(c.from), to: map.get(c.to) });
   ED.lasso = N;
   commit(); renderPage(page); renderSub();
 }
@@ -2155,6 +2355,7 @@ function normFile(f) {
     orient: p.orient === 'land' ? 'land' : 'port',
     items: Array.isArray(p.items) ? p.items.filter((i) => ITEM_LABEL[i.type]) : [],
     strokes: Array.isArray(p.strokes) ? p.strokes.filter((s) => Array.isArray(s.pts)) : [],
+    conns: Array.isArray(p.conns) ? p.conns.filter((c) => c && c.from && c.to) : [],
   }));
   return { id: String(f.id || uid()), boxId: String(f.boxId), folderId: String(f.folderId), name: String(f.name || '無題のメモ'), pages, created: f.created || t, updated: f.updated || t, trashedAt: f.trashedAt || null };
 }
@@ -2238,6 +2439,8 @@ async function init() {
       if (pop) { closePopover(); return; }
       if (ED) {
         if (ED.editId) { document.activeElement?.blur(); return; }
+        if (ED.csel) { clearConnSel(); renderSub(); return; }
+        if (ED.connectFrom) { ED.connectFrom = null; toast("矢印でつなぐのをやめました"); return; }
         if (ED.lasso) { clearLasso(); renderSub(); return; }
         if (ED.sel) { select(null); return; }
         if (ED.tool !== 'select') { setTool('select'); return; }
@@ -2254,6 +2457,7 @@ async function init() {
     if (e.key === '/') { e.preventDefault(); search.focus(); return; }
     if (!ED) return;
     if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (ED.csel) { e.preventDefault(); deleteConn(); return; }
       if (ED.lasso) { e.preventDefault(); lassoDelete(); return; }
       if (ED.sel) { e.preventDefault(); deleteSelected(); return; }
     }

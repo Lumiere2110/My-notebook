@@ -731,3 +731,19 @@ select.field-input { padding: 8px 9px; }
 .lb-del { display: grid; left: calc(-14px * var(--inv)); top: calc(-14px * var(--inv)); }
 .lasso-box.locked .lb-del { display: none; }
 .lasso-box.rot-below .lb-rot { top: auto; bottom: calc(-40px * var(--inv)); }
+
+/* ===== 2026-11 追加3: 付箋をつなぐ矢印・範囲選択の閉じ線 ===== */
+.lasso-closer { fill: none; stroke: #2f6fd6; stroke-opacity: .6; stroke-width: calc(1.5px * var(--inv)); stroke-dasharray: calc(3px * var(--inv)) calc(5px * var(--inv)); }
+.conn-temp { fill: none; stroke: #2f6fd6; stroke-width: calc(3px * var(--inv)); stroke-dasharray: calc(10px * var(--inv)) calc(6px * var(--inv)); stroke-linecap: round; }
+.conn-label { font-family: var(--font); font-weight: 600; }
+.ed .item.conn-target { outline: calc(3px * var(--inv)) solid #2f6fd6; outline-offset: calc(3px * var(--inv)); }
+.h-conn {
+  display: none; position: absolute; z-index: 3; place-items: center;
+  right: calc(-15px * var(--inv)); top: 50%; margin-top: calc(-13px * var(--inv));
+  width: calc(26px * var(--inv)); height: calc(26px * var(--inv));
+  border-radius: 50%; background: #1f9d6b; color: #fff; cursor: crosshair !important;
+  box-shadow: 0 0 0 calc(2px * var(--inv)) #fff, 0 1px 4px rgba(0,0,0,.3);
+  touch-action: none;
+}
+.h-conn .ic { width: 70%; height: 70%; }
+.ed .item.selected .h-conn { display: grid; }
