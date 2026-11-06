@@ -123,7 +123,17 @@ function isDark(hex) {
 
 /* ===== ページの決まりごと ===== */
 const PAGE_W = 900, PAGE_H = 1272;          // A4 の縦横比。ページの中はこの大きさの座標で記録する（横向きは入れ替え）
-function dims(page) { return page?.orient === 'land' ? { w: PAGE_H, h: PAGE_W } : { w: PAGE_W, h: PAGE_H }; }
+/* 用紙のサイズ（ページの中の座標の大きさ。A4 = 900×1272 を基準に、ほかは同じ縮尺） */
+const SIZES = [
+  ["a4", "A4", 900, 1272], ["a5", "A5", 634, 900], ["b5", "B5", 780, 1101], ["b4", "B4", 1101, 1559], ["a3", "A3", 1272, 1800],
+  ["letter", "レター", 926, 1196], ["square", "正方形", 900, 900], ["wide", "ワイド 16:9", 1600, 900], ["long", "縦長（2倍）", 900, 2544], ["custom", "自由に決める", 0, 0],
+];
+function baseDims(page) {
+  if (page?.size === "custom" && page.cw > 0 && page.ch > 0) return { w: page.cw, h: page.ch };
+  const s = SIZES.find((x) => x[0] === page?.size && x[2]);
+  return s ? { w: s[2], h: s[3] } : { w: PAGE_W, h: PAGE_H };
+}
+function dims(page) { const d = baseDims(page); return page?.orient === "land" ? { w: d.h, h: d.w } : d; }
 const PAPERS = [
   ['plain', '白紙'], ['lined', '罫線'], ['narrow', '細い罫線'], ['margin', '余白付き罫線'], ['twocol', '2段罫線'],
   ['grid', '方眼'], ['gridS', '細かい方眼'], ['gridL', '大きい方眼'], ['dot', 'ドット'], ['vertical', '縦罫線'],
@@ -162,7 +172,11 @@ const OPEN_SHAPES = new Set(['line', 'arrow']);
 const TEXTY = new Set(['text', 'sticky', 'check']);
 const ITEM_LABEL = { text: 'テキストボックス', sticky: '付箋', image: '画像', check: 'チェックボックス', select: 'プルダウン', link: 'メモへ移動ボタン' };
 const PLACEHOLDER = { text: 'テキストを入力', sticky: '付箋', check: '項目' };
-function newPage(bg = 'lined', paper = PAPER_COLORS[0][0], orient = 'port') { return { id: uid(), bg, paper, orient, items: [], strokes: [], conns: [] }; }
+function newPage(bg = "lined", paper = PAPER_COLORS[0][0], orient = "port", size = "a4", cw, ch) {
+  const p = { id: uid(), bg, paper, orient, size, items: [], strokes: [], conns: [] };
+  if (size === "custom") { p.cw = cw; p.ch = ch; }
+  return p;
+}
 /* ページを複製したとき、アイテムの新しい id に合わせて矢印のつなぎ先も付け替える */
 function remapPage(p) {
   const map = new Map();
@@ -673,11 +687,12 @@ async function createFile(box, folderId) {
     fields.push({ key: 'folder', type: 'select', label: '入れるフォルダ', value: folders[0].id, options: folders.map((f) => [f.id, f.name]) });
   }
   fields.push({ key: 'paper', type: 'select', label: '用紙', value: pref('paper', 'lined'), options: PAPERS });
+  fields.push({ key: "size", type: "select", label: "サイズ", value: pref("pageSize", "a4"), options: SIZES.filter((s) => s[2]).map(([k, l, w, h]) => [k, `${l}（${w}×${h}）`]) });
   const v = await dialog({ title: '新しいメモファイル', fields, ok: '作成' });
   if (!v) { if (folderId === 'all') render(); return; }
-  setPref('paper', v.paper);
+  setPref("paper", v.paper); setPref("pageSize", v.size);
   const t = Date.now();
-  const f = { id: uid(), boxId: box.id, folderId: v.folder || folderId, name: v.name.trim() || '無題のメモ', pages: [newPage(v.paper)], created: t, updated: t };
+  const f = { id: uid(), boxId: box.id, folderId: v.folder || folderId, name: v.name.trim() || '無題のメモ', pages: [newPage(v.paper, undefined, "port", v.size)], created: t, updated: t };
   S.files.push(f); await put('files', f);
   go('#/f/' + f.id);
 }
@@ -1133,7 +1148,7 @@ function renderPages() {
   ED.pagesBox.replaceChildren();
   pages.forEach((p, i) => {
     const { w, h } = dims(p);
-    const frame = el('div', { class: 'page', style: `aspect-ratio:${w} / ${h}` }, buildStage(p, true));
+    const frame = el("div", { class: "page", style: `aspect-ratio:${w} / ${h}; width:${r1(clamp(w / PAGE_W, 0.35, 1) * 100)}%; margin: 0 auto` }, buildStage(p, true));
     const head = el('div', { class: 'page-head' },
       el('span', { class: 'page-no', text: `${i + 1} / ${pages.length}` }),
       el('span', { class: 'spacer' }),
@@ -1171,7 +1186,7 @@ function renderPage(page) {
 function autosizeText(ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
 function addPage(i) {
   const src = ED.file.pages[i];
-  const p = newPage(src?.bg || 'lined', src?.paper, src?.orient);
+  const p = newPage(src?.bg || "lined", src?.paper, src?.orient, src?.size, src?.cw, src?.ch);
   ED.file.pages.splice(i + 1, 0, p);
   commit(); renderPages();
   stageOf(p.id)?.closest('.page-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1220,11 +1235,43 @@ function paperMenu(anchor, p) {
       onclick: () => apply(() => { p.paper = c; }),
     }))),
     el('div', { class: 'pop-title', text: '向き' }),
-    el('div', { class: 'pop-row' }, seg([['port', '縦'], ['land', '横']], p.orient || 'port', (v) => apply(() => { p.orient = v; }), () => {})),
+    el('div', { class: 'pop-row' }, seg([['port', '縦'], ['land', '横']], p.orient || 'port', (v) => apply(() => { p.orient = v; fitItems(p); }), () => {})),
+    el('div', { class: 'pop-title' }, 'サイズ', el('span', { class: 'pop-sub', text: `（いま ${dims(p).w}×${dims(p).h}）` })),
+    el('div', { class: 'size-grid' }, SIZES.map(([k, label, w, h]) => el('button', {
+      class: 'size-opt' + ((p.size || 'a4') === k ? ' sel' : ''), type: 'button', 'aria-pressed': (p.size || 'a4') === k ? 'true' : 'false',
+      title: w ? `${label}（${w}×${h}）` : '幅と高さを自分で決める',
+      onclick: () => {
+        if (k === 'custom') { closePopover(); customSize(p); return; }
+        apply(() => { p.size = k; delete p.cw; delete p.ch; fitItems(p); });
+      },
+    }, label))),
     el('div', { class: 'menu-sep' }),
-    el('button', { class: 'menu-item', type: 'button', onclick: () => { closePopover(); ED.file.pages.forEach((x) => { x.bg = p.bg; x.paper = p.paper; x.orient = p.orient; }); commit(); renderPages(); toast('すべてのページを同じ用紙にしました'); } },
+    el('button', { class: 'menu-item', type: 'button', onclick: () => { closePopover(); ED.file.pages.forEach((x) => { x.bg = p.bg; x.paper = p.paper; x.orient = p.orient; x.size = p.size; x.cw = p.cw; x.ch = p.ch; fitItems(x); }); commit(); renderPages(); toast('すべてのページを同じ用紙にしました'); } },
       icon('pageBg'), 'すべてのページをこの用紙にする'),
   ], 'paper-pop');
+}
+/* サイズを変えてページの外に出たものを、ページの中に戻す */
+function fitItems(p) {
+  const { w, h } = dims(p);
+  for (const it of p.items) {
+    it.x = Math.round(clamp(it.x, 0, Math.max(0, w - Math.min(it.w, w))));
+    it.y = Math.round(clamp(it.y, 0, Math.max(0, h - 40)));
+    if (it.w > w) it.w = w;
+  }
+}
+async function customSize(p) {
+  const cur = dims(p);
+  const v = await dialog({ title: 'ページのサイズを決める', note: 'A4 の幅が 900 です（目安: A5 = 634×900、A3 = 1272×1800）。300〜3000 の数で入れてください。', fields: [
+    { key: 'w', label: '幅', value: String(cur.w), maxlength: 4 },
+    { key: 'h', label: '高さ', value: String(cur.h), maxlength: 4 },
+  ], ok: '変更' });
+  if (!v || !ED) return;
+  const w = Math.round(+v.w), h = Math.round(+v.h);
+  if (!(w >= 300 && w <= 3000 && h >= 300 && h <= 3000)) { toast('幅と高さは 300〜3000 の数で入れてください'); return; }
+  p.size = 'custom'; p.cw = w; p.ch = h; p.orient = 'port';
+  fitItems(p);
+  commit(); renderPages();
+  toast(`ページのサイズを ${w}×${h} にしました`);
 }
 function editorMenu(anchor) {
   const f = ED.file;
@@ -2480,6 +2527,8 @@ function normFile(f) {
     bg: PAPERS.some(([k]) => k === p.bg) ? p.bg : 'plain',
     paper: typeof p.paper === 'string' ? p.paper : PAPER_COLORS[0][0],
     orient: p.orient === 'land' ? 'land' : 'port',
+    size: SIZES.some(([k]) => k === p.size) ? p.size : "a4",
+    cw: +p.cw || undefined, ch: +p.ch || undefined,
     items: Array.isArray(p.items) ? p.items.filter((i) => ITEM_LABEL[i.type]) : [],
     strokes: Array.isArray(p.strokes) ? p.strokes.filter((s) => Array.isArray(s.pts)) : [],
     conns: Array.isArray(p.conns) ? p.conns.filter((c) => c && c.from && c.to) : [],

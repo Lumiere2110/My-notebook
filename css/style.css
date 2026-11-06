@@ -781,3 +781,12 @@ select.field-input { padding: 8px 9px; }
 .item-sticky.vert .txt, .item-sticky.vert textarea { height: 100%; padding: 10px 12px; overflow: hidden; }
 .item-text.vert .item-tags { position: absolute; left: 0; top: 100%; padding: 4px 0 0; }
 .ed.tool-check .stage, .ed.tool-check .item { cursor: copy; }
+
+/* ページのサイズ */
+.size-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 0 12px 10px; }
+.size-opt { padding: 5px 2px; border: 1px solid var(--border); border-radius: 6px; background: transparent; font-size: 12px; line-height: 1.25; }
+.size-opt:hover { background: var(--hover); }
+.size-opt.sel { background: var(--active); color: var(--active-text); border-color: transparent; font-weight: 700; }
+.pop-sub { margin-left: 4px; font-size: 12px; }
+@media (max-width: 600px) { .size-grid { grid-template-columns: repeat(3, 1fr); } }
+.paper-pop { max-height: calc(100vh - 16px); overflow-y: auto; }
