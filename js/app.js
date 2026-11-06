@@ -23,6 +23,8 @@ const ICONS = {
   copy: 'M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z',
   box: 'M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4l16-.02V7z',
   folder: 'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z',
+  folderOpen: 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z',
+  shape: 'M12 2l-5.5 9h11L12 2zm5.5 11c-2.49 0-4.5 2.01-4.5 4.5S15.01 22 17.5 22s4.5-2.01 4.5-4.5-2.01-4.5-4.5-4.5zM3 21.5h8v-8H3v8z',
   folders: 'M3 6H1v13c0 1.1.9 2 2 2h17v-2H3V6zm18-2h-7l-2-2H7c-1.1 0-1.99.9-1.99 2L5 15c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z',
   file: 'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
   addPage: 'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 14h-3v3h-2v-3H8v-2h3v-3h2v3h3v2zm-3-7V3.5L18.5 9H13z',
@@ -151,8 +153,11 @@ const ERASER_W = [[12, '細'], [28, '中'], [56, '太'], [110, '特大']];
 const TEXT_SIZES = [[18, '小'], [24, '中'], [34, '大'], [48, '特大']];
 const TOOLS = [
   ['select', 'select', '選択', 'V'], ['lasso', 'lasso', '範囲選択', 'L'], ['text', 'text', 'テキスト', 'T'], ['sticky', 'sticky', '付箋', 'S'],
-  ['pen', 'pen', 'ペン', 'P'], ['marker', 'marker', 'マーカー', 'M'], ['eraser', 'eraser', '消しゴム', 'E'],
+  ['pen', 'pen', 'ペン', 'P'], ['marker', 'marker', 'マーカー', 'M'], ['shape', 'shape', '図形', 'G'], ['eraser', 'eraser', '消しゴム', 'E'],
 ];
+const SHAPES = [['rect', '四角'], ['round', '角丸'], ['ellipse', '円'], ['tri', '三角'], ['diamond', 'ひし形'], ['star', '星'], ['line', '直線'], ['arrow', '矢印']];
+const FILLS = [['none', '塗りなし'], ['soft', 'うすく塗る'], ['solid', '塗る']];
+const OPEN_SHAPES = new Set(['line', 'arrow']);
 const TEXTY = new Set(['text', 'sticky', 'check']);
 const ITEM_LABEL = { text: 'テキストボックス', sticky: '付箋', image: '画像', check: 'チェックボックス', select: 'プルダウン', link: 'メモへ移動ボタン' };
 const PLACEHOLDER = { text: 'テキストを入力', sticky: '付箋', check: '項目' };
@@ -457,10 +462,13 @@ function renderBox(main, box, folderId) {
     el('span', { class: 'sub', text: `フォルダ ${folders.length} · メモファイル ${all.length}` }),
     iconBtn('more', 'ボックスのメニュー', (e) => { e.stopPropagation(); boxMenu(e.currentTarget, box); }, 'sm')));
 
-  const folderBtn = (id, name, count, ic) => el('button', {
-    class: 'folder-item' + (folderId === id ? ' active' : ''), type: 'button', title: name,
-    onclick: () => go(boxHash(box.id, id)),
-  }, icon(ic), el('span', { class: 'folder-name', text: name }), el('span', { class: 'count', text: count }));
+  const folderBtn = (id, name, count, ic) => {
+    const on = folderId === id;
+    return el('button', {
+      class: 'folder-item' + (on ? ' active' : ''), type: 'button', title: on ? `${name}（開いています）` : name, 'aria-current': on ? 'true' : null,
+      onclick: () => go(boxHash(box.id, id)),
+    }, icon(on && ic === 'folder' ? 'folderOpen' : ic), el('span', { class: 'folder-name', text: name }), el('span', { class: 'count', text: count }));
+  };
 
   const side = el('aside', { class: 'folders', 'aria-label': 'フォルダ' },
     folderBtn('all', 'すべてのフォルダ', all.length, 'folders'),
@@ -470,7 +478,10 @@ function renderBox(main, box, folderId) {
   const folder = folderId === 'all' ? null : folderById(folderId);
   const list = filesOf(box.id, folderId);
   const head = el('div', { class: 'files-head' },
-    el('h2', {}, icon(folder ? 'folder' : 'folders'), folder ? folder.name : 'すべてのフォルダ'),
+    el('div', { class: 'files-title' },
+      el('div', { class: 'crumb' }, icon('box'), boxName(box), ' ›'),
+      el('h2', {}, icon(folder ? 'folderOpen' : 'folders'), el('span', { text: folder ? folder.name : 'すべてのフォルダ' }),
+        el('span', { class: 'count-badge', text: `${list.length}件` }))),
     folder ? iconBtn('more', 'フォルダのメニュー', (e) => { e.stopPropagation(); folderMenu(e.currentTarget, folder); }, 'sm') : null,
     el('span', { class: 'spacer' }),
     el('button', { class: 'btn primary', type: 'button', onclick: () => createFile(box, folderId) }, icon('plus'), '新しいメモファイル'));
@@ -706,7 +717,11 @@ function fileMenu(anchor, f) {
 function strokeD(p, sharp) {
   if (!p.length) return '';
   if (p.length === 1) return `M${p[0][0]} ${p[0][1]}l0.01 0`;
-  if (sharp) return 'M' + p.map((q) => q[0] + ' ' + q[1]).join('L');
+  if (sharp) {
+    const f = p[0], l = p[p.length - 1];
+    const closed = p.length > 3 && f[0] === l[0] && f[1] === l[1];      // 閉じた形は Z で閉じて角まで尖らせる
+    return 'M' + (closed ? p.slice(0, -1) : p).map((q) => q[0] + ' ' + q[1]).join('L') + (closed ? 'Z' : '');
+  }
   let d = `M${p[0][0]} ${p[0][1]}`;
   for (let i = 1; i < p.length - 1; i++) d += `Q${p[i][0]} ${p[i][1]} ${r1((p[i][0] + p[i + 1][0]) / 2)} ${r1((p[i][1] + p[i + 1][1]) / 2)}`;
   const l = p[p.length - 1];
@@ -714,7 +729,9 @@ function strokeD(p, sharp) {
 }
 function strokeEl(s) {
   return svgEl('path', {
-    d: strokeD(s.pts, s.sharp), fill: 'none', stroke: s.color, 'stroke-width': s.width, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+    d: strokeD(s.pts, s.sharp), fill: s.fill || 'none', 'fill-opacity': s.fill ? (s.fillA ?? 1) : null,
+    stroke: s.color, 'stroke-width': s.width, 'stroke-linecap': 'round',
+    'stroke-linejoin': s.join || (s.sharp ? 'miter' : 'round'), 'stroke-miterlimit': s.sharp ? 8 : null,
     class: s.kind === 'marker' ? 'mark' : null, 'data-id': s.id,
   });
 }
@@ -755,7 +772,7 @@ function itemEl(it, edit) {
     default: d.append(textView(it));
   }
   if (TEXTY.has(it.type)) { const c = tagChips(it); if (c) d.append(c); }
-  if (edit) d.append(el('div', { class: 'h-move', title: '移動' }, icon('move4')), el('div', { class: 'h-resize', title: '大きさを変える' }), el('div', { class: 'lock-badge', title: '固定中' }, icon('lock')));
+  if (edit) d.append(el('div', { class: 'h-move', title: '移動' }, icon('move4')), el('div', { class: 'h-resize', title: '大きさを変える' }), el("div", { class: "h-del", title: "削除" }, icon("trash")), el('div', { class: 'lock-badge', title: '固定中' }, icon('lock')));
   return d;
 }
 function buildStage(page, edit) {
@@ -780,6 +797,7 @@ function openEditor(file) {
     undo: [], redo: [], snap: JSON.stringify(file.pages), saveT: null, commitT: null,
     pen: { color: INK[0][0], width: PEN_W[1][0] }, marker: { color: MARK[0][0], width: MARK_W[1][0] },
     eraser: { size: ERASER_W[1][0], mode: 'part' },
+    shape: { kind: "rect", color: INK[0][0], width: PEN_W[1][0], fill: "none" },
     ruler: pref('ruler', '0') === '1',
     textSize: TEXT_SIZES[1][0], textColor: INK[0][0], stickyColor: STICKY[0][0],
     back: S.lastBoxHash && S.lastBoxHash.startsWith(boxHash(file.boxId)) ? S.lastBoxHash : boxHash(file.boxId, file.folderId),
@@ -986,7 +1004,7 @@ function setTool(t) {
   ED.tool = t;
   ED.toolBtns.forEach((b) => b.setAttribute('aria-pressed', b.dataset.tool === t ? 'true' : 'false'));
   ED.root.className = 'ed tool-' + t;
-  if (t !== 'lasso' && ED.lasso) clearLasso();
+  if (ED.lasso && t !== "lasso" && t !== "select") clearLasso();
   if (t !== 'select') {
     if (document.activeElement?.closest?.('.stage')) document.activeElement.blur();
     select(null);
@@ -1062,12 +1080,20 @@ function renderSub() {
   } else if (t === 'sticky') {
     s.append(el('span', { class: 'sub-label', text: '付箋' }), colorRow(STICKY, ED.stickyColor, (v) => { ED.stickyColor = v; }),
       hint('貼りたい場所をクリック'));
-  } else if (t === 'lasso') {
+  } else if (t === 'shape') {
+    const cfg = ED.shape;
+    s.append(el('span', { class: 'sub-label', text: '図形' }),
+      seg(SHAPES, cfg.kind, (v) => { cfg.kind = v; }),
+      colorRow(INK, cfg.color, (v) => { cfg.color = v; }),
+      seg(PEN_W, cfg.width, (v) => { cfg.width = v; }),
+      OPEN_SHAPES.has(cfg.kind) ? null : seg(FILLS, cfg.fill, (v) => { cfg.fill = v; }),
+      hint('ドラッグで描きます（Shift で正円・正方形、直線は15°ずつ）。クリックだけで決まった大きさに置けます'));
+  } else if (t === 'lasso' || ED.lasso) {
     renderLassoSub(s);
   } else if (sel) {
     renderItemSub(s, sel.page, sel.it);
   } else {
-    s.append(hint('ツールを選んでページに書き込みます。ダブルクリックでテキストボックス。「範囲選択」で囲むと色・角度・固定を変えられます。'));
+    s.append(hint('ツールを選んでページに書き込みます。ダブルクリックでテキストボックス。線や図形はクリックで選べます。選んだものは赤いゴミ箱ボタンか Delete キーで削除できます。'));
   }
 }
 function renderItemSub(s, page, it) {
@@ -1253,19 +1279,92 @@ function onStageDown(e, stage) {
   const pt = toLocal(e, stage);
   if (tool === 'pen' || tool === 'marker') { e.preventDefault(); return drawStroke(e, stage, page, pt); }
   if (tool === 'eraser') { e.preventDefault(); return erase(e, stage, page, pt); }
-  if (tool === 'lasso') {
-    e.preventDefault();
-    const lb = e.target.closest('.lasso-box');
-    if (lb && ED.lasso?.pageId === page.id) return lassoTransform(e, stage, page, pt, lb);
-    return startLasso(e, stage, page, pt);
-  }
+  if (tool === 'shape') { e.preventDefault(); return drawShape(e, stage, page, pt); }
+  const lb = e.target.closest('.lasso-box');
+  if (lb && ED.lasso?.pageId === page.id && (tool === 'lasso' || tool === 'select')) { e.preventDefault(); return lassoTransform(e, stage, page, pt, lb); }
+  if (tool === 'lasso') { e.preventDefault(); return startLasso(e, stage, page, pt); }
   if (e.target.closest('a.url')) return;                      // リンクはそのまま開く
   if (e.target.closest('.tag') && !e.target.closest('.editing')) return;
   const d = e.target.closest('.item');
-  if (d) return onItemDown(e, stage, page, d, pt);
+  if (d) { if (ED.lasso) clearLasso(); return onItemDown(e, stage, page, d, pt); }
   if (document.activeElement?.closest?.('.stage')) document.activeElement.blur();
   if (tool === 'text' || tool === 'sticky') { e.preventDefault(); createItem(page, tool, pt); setTool('select'); return; }
+  // 選択ツールで線や図形をクリック → その線を選ぶ（そのままドラッグで移動もできる）
+  if (ED.lasso) clearLasso();
+  const hit = [...page.strokes].reverse().find((x) => hitStroke(x, pt, x.width / 2 + 8) || (x.fill && x.pts.length > 2 && inPoly(pt.x, pt.y, x.pts)));
+  if (hit) {
+    e.preventDefault();
+    select(null);
+    ED.lasso = { pageId: page.id, strokes: new Set([hit.id]), items: new Set() };
+    drawLassoBox(); renderSub();
+    const box = stage.querySelector('.lasso-box');
+    if (box && !hit.locked) lassoTransform(e, stage, page, pt, box);
+    return;
+  }
   select(null);
+  renderSub();
+}
+/* --- 図形（四角・円・三角・ひし形・星・直線・矢印）。線として描くので消しゴム・範囲選択・固定がそのまま使える --- */
+function shapePts(kind, a, b, width = 3) {
+  const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
+  const w = x1 - x0, h = y1 - y0, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const close = (p) => [...p, p[0].slice()];
+  switch (kind) {
+    case 'rect': return close([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+    case 'round': {
+      const r = Math.min(w, h) * 0.2, out = [];
+      const arc = (ccx, ccy, from) => { for (let i = 0; i <= 8; i++) { const t = from + (i / 8) * (Math.PI / 2); out.push([ccx + Math.cos(t) * r, ccy + Math.sin(t) * r]); } };
+      arc(x1 - r, y0 + r, -Math.PI / 2); arc(x1 - r, y1 - r, 0); arc(x0 + r, y1 - r, Math.PI / 2); arc(x0 + r, y0 + r, Math.PI);
+      return close(out);
+    }
+    case 'ellipse': { const out = []; for (let i = 0; i < 96; i++) { const t = (i / 96) * Math.PI * 2; out.push([cx + Math.cos(t) * w / 2, cy + Math.sin(t) * h / 2]); } return close(out); }
+    case 'tri': return close([[cx, y0], [x1, y1], [x0, y1]]);
+    case 'diamond': return close([[cx, y0], [x1, cy], [cx, y1], [x0, cy]]);
+    case 'star': {
+      const out = [];
+      for (let i = 0; i < 10; i++) { const t = -Math.PI / 2 + (i * Math.PI) / 5, k = i % 2 ? 0.4 : 1; out.push([cx + Math.cos(t) * (w / 2) * k, cy + 0.08 * h + Math.sin(t) * (h / 2) * k * 1.05]); }
+      return close(out);
+    }
+    case 'line': return [a.slice(), b.slice()];
+    case 'arrow': {
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      const hl = Math.min(len * 0.45, clamp(len * 0.22, 14, 44) + width * 1.5), sp = 0.48;
+      const h1 = [b[0] - Math.cos(ang - sp) * hl, b[1] - Math.sin(ang - sp) * hl], h2 = [b[0] - Math.cos(ang + sp) * hl, b[1] - Math.sin(ang + sp) * hl];
+      return [a.slice(), b.slice(), h1, b.slice(), h2];
+    }
+  }
+  return [a, b];
+}
+function drawShape(e, stage, page, pt) {
+  const cfg = ED.shape, kind = cfg.kind;
+  const loc = localizer(stage);
+  const a = [pt.x, pt.y];
+  const s = { id: uid(), kind: 'pen', shape: kind, color: cfg.color, width: cfg.width, pts: [a.slice()], sharp: true };
+  if (!OPEN_SHAPES.has(kind) && cfg.fill !== 'none') { s.fill = cfg.color; s.fillA = cfg.fill === 'soft' ? 0.22 : 1; }
+  if (kind === 'arrow') s.join = 'round';
+  const path = strokeEl(s);
+  stage.querySelector('.ink').append(path);
+  let end = null;
+  track(e, (ev) => {
+    const p = loc(ev);
+    let b = [p.x, p.y];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    if (ev.shiftKey) {
+      if (OPEN_SHAPES.has(kind)) b = snapAngle(a, b, Math.PI / 12);
+      else { const m = Math.max(Math.abs(dx), Math.abs(dy)); b = [a[0] + Math.sign(dx || 1) * m, a[1] + Math.sign(dy || 1) * m]; }
+    }
+    end = b;
+    s.pts = shapePts(kind, a, b, s.width).map((q) => q.map(r1));
+    path.setAttribute('d', strokeD(s.pts, true));
+  }, () => {
+    if (!end || Math.hypot(end[0] - a[0], end[1] - a[1]) < 8) {      // クリックだけなら決まった大きさで置く
+      const hw = OPEN_SHAPES.has(kind) ? 100 : 80, hh = kind === 'ellipse' || kind === 'star' ? 80 : OPEN_SHAPES.has(kind) ? 0 : 60;
+      s.pts = shapePts(kind, [a[0] - hw, a[1] - hh], [a[0] + hw, a[1] + hh], s.width).map((q) => q.map(r1));
+      path.setAttribute('d', strokeD(s.pts, true));
+    }
+    page.strokes.push(s);
+    commit();
+  });
 }
 function createItem(page, type, pt) {
   const { w, h } = dims(page);
@@ -1290,6 +1389,7 @@ function openLink(it) {
 function onItemDown(e, stage, page, d, pt) {
   const it = page.items.find((x) => x.id === d.dataset.id);
   if (!it) return;
+  if (e.target.closest(".h-del")) { e.preventDefault(); if (ED.editId === it.id) ED.editId = null; select(page.id, it.id); deleteSelected(); return; }
   const handle = e.target.closest('.h-resize') ? 'resize' : e.target.closest('.h-move') ? 'move' : null;
   if (!handle && ED.editId === it.id && e.target.tagName === 'TEXTAREA') return;   // 入力中の文字の操作はそのまま
   if (ED.editId && ED.editId !== it.id) document.activeElement?.blur();
@@ -1427,15 +1527,69 @@ function beautify(pts) {
         const R = (rx + ry) / 2;
         const out = [];
         for (let i = 0; i <= 96; i++) { const t = (i / 96) * Math.PI * 2; out.push([r1(cx + Math.cos(t) * (round ? R : rx)), r1(cy + Math.sin(t) * (round ? R : ry))]); }
-        return { pts: out };
+        return { pts: out, sharp: true };
       }
     }
-    const simp = rdp(pts, Math.max(4, len * 0.01)).slice(0, -1);
-    return simp.length >= 3 ? { pts: catmull(simp, true) } : { pts };
   }
-  const simp = rdp(pts, Math.max(4, len * 0.012));
-  if (simp.length <= 2) return { pts: snapLine(a, b).map((q) => q.map(r1)), sharp: true };
-  return { pts: catmull(simp, false) };
+  // それ以外: 角（急に曲がる所）で区切り、区間ごとに「まっすぐなら直線」「曲がっていればなめらかな曲線」にする
+  const R = resample(pts, clamp(len / 90, 2.5, 7));
+  const cuts = [0, ...cornerIdx(R), R.length - 1];
+  let out = [];
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const piece = fitPiece(R.slice(cuts[i], cuts[i + 1] + 1));
+    out = out.length ? out.concat(piece.slice(1)) : piece;
+  }
+  if (out.length === 2) out = snapLine(out[0], out[1]);
+  if (closed) out[out.length - 1] = out[0].slice();
+  return { pts: out.map((q) => q.map(r1)), sharp: true };
+}
+/* 線を同じ間隔の点に並べ直す */
+function resample(pts, step) {
+  const out = [pts[0].slice()];
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    let a = pts[i - 1];
+    const b = pts[i];
+    let d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    while (d > 0 && acc + d >= step) {
+      const t = (step - acc) / d;
+      const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      out.push(q); a = q; d = Math.hypot(b[0] - a[0], b[1] - a[1]); acc = 0;
+    }
+    acc += d;
+  }
+  const l = pts[pts.length - 1], o = out[out.length - 1];
+  if (Math.hypot(l[0] - o[0], l[1] - o[1]) > step * 0.3) out.push(l.slice()); else out[out.length - 1] = l.slice();
+  return out;
+}
+/* 急に向きが変わる点（角）を見つける */
+function cornerIdx(R) {
+  const k = 4, n = R.length, turn = new Array(n).fill(0);
+  for (let i = k; i < n - k; i++) {
+    const a = R[i - k], b = R[i], c = R[i + k];
+    let t = Math.abs(Math.atan2(c[1] - b[1], c[0] - b[0]) - Math.atan2(b[1] - a[1], b[0] - a[0]));
+    if (t > Math.PI) t = 2 * Math.PI - t;
+    turn[i] = t;
+  }
+  const out = [];
+  for (let i = k; i < n - k; i++) {
+    if (turn[i] < 0.9 || turn[i] < turn[i - 1] || turn[i] < turn[i + 1]) continue;   // 約50°以上曲がる所だけ
+    if (out.length && i - out[out.length - 1] <= k) { if (turn[i] > turn[out[out.length - 1]]) out[out.length - 1] = i; }
+    else out.push(i);
+  }
+  return out;
+}
+/* 角と角の間: ほぼまっすぐなら直線、そうでなければ揺れをならしてなめらかな曲線に */
+function fitPiece(P) {
+  const a = P[0], b = P[P.length - 1];
+  const chord = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  let dev = 0;
+  for (const p of P) dev = Math.max(dev, distSeg(p[0], p[1], a, b));
+  if (P.length < 4 || dev < Math.max(5, chord * 0.06)) return [a, b];
+  let Q = P.map((q) => q.slice());
+  for (let it = 0; it < 10; it++) Q = Q.map((q, i) => (i === 0 || i === Q.length - 1 ? q : [(Q[i - 1][0] + 2 * q[0] + Q[i + 1][0]) / 4, (Q[i - 1][1] + 2 * q[1] + Q[i + 1][1]) / 4]));
+  const simp = rdp(Q, Math.max(1.5, pathLen(Q) * 0.006));
+  return simp.length <= 2 ? [a, b] : catmull(simp, false);
 }
 function drawStroke(e, stage, page, pt) {
   const cfg = ED[ED.tool];
@@ -1505,7 +1659,7 @@ function eraseAt(page, ink, p, R, whole) {
       }
       if (run.length > 1) runs.push(run);
       for (const pts of runs) {
-        const n = { id: uid(), kind: s.kind, color: s.color, width: s.width, pts };
+        const n = { id: uid(), kind: s.kind, color: s.color, width: s.width, pts, sharp: s.sharp || undefined, join: s.join };
         const pe = strokeEl(n);
         if (old) old.before(pe); else ink.append(pe);
         out.push(n);
@@ -1574,9 +1728,9 @@ function drawLassoBox() {
   if (!b) { ED.lasso = null; return; }
   L.box = b;
   const lk = groupLockState(page, L);
-  const box = el('div', { class: 'lasso-box' + (lk.any ? ' locked' : '') },
+  const box = el("div", { class: "lasso-box" + (lk.any ? " locked" : "") + (b.y < 45 ? " rot-below" : "") },
     el('div', { class: 'lb-rot', title: '回して角度を変える（Shift で15°ずつ）' }, icon('rotR')),
-    el('div', { class: 'lb-scale', title: '大きさを変える' }),
+    el('div', { class: 'lb-scale', title: '大きさを変える' }), el("div", { class: "lb-del", title: "削除" }, icon("trash")),
     lk.any ? el('div', { class: 'lb-lock', title: '固定中' }, icon('lock')) : null);
   Object.assign(box.style, { left: b.x + 'px', top: b.y + 'px', width: b.w + 'px', height: b.h + 'px' });
   st.append(box);
@@ -1646,6 +1800,7 @@ function applyGroup(page, L, snap, t) {
 }
 function lassoTransform(e, stage, page, pt, lb) {
   const L = ED.lasso;
+  if (e.target.closest(".lb-del")) { lassoDelete(); return; }
   if (groupLockState(page, L).any) { toast('固定されています。動かすには「固定を解除」してください'); return; }
   const mode = e.target.closest('.lb-rot') ? 'rot' : e.target.closest('.lb-scale') ? 'scale' : 'move';
   const snap = groupSnapshot(page, L);
@@ -1695,7 +1850,7 @@ function renderLassoSub(s) {
   const { strokes, items } = lassoParts(page, L);
   const first = strokes[0]?.color || items.find((i) => i.color)?.color;
   s.append(colorRow(INK, first, (v) => {
-    for (const st of strokes) st.color = v;
+    for (const st of strokes) { st.color = v; if (st.fill) st.fill = v; }
     for (const it of items) if (it.type === 'text' || it.type === 'check' || it.type === 'sticky') it.color = v;
     commit(); renderPage(page);
   }),

@@ -691,3 +691,43 @@ select.field-input { padding: 8px 9px; }
   .sub-input { width: 160px; }
   .trash-row .btn { flex: 1; justify-content: center; }
 }
+
+/* ===== 2026-11 追加2: 左寄せ・開いているフォルダ・図形・削除ボタン ===== */
+.view-title { max-width: none; margin: 0 0 18px; }
+.box-layout { max-width: none; margin: 0; grid-template-columns: 210px minmax(0, 1fr); gap: 24px; }
+.file-grid.wide, .trash-wrap { margin: 0; }
+.folder-item { position: relative; }
+.folder-item.active {
+  background: var(--active); color: var(--active-text); font-weight: 700;
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+.folder-item.active .ic { color: var(--accent); }
+.folder-item.active .count { color: var(--active-text); font-weight: 600; }
+.files-head {
+  padding: 10px 14px; border: 1px solid var(--border); border-left: 5px solid var(--accent);
+  border-radius: 10px; background: var(--surface);
+}
+.files-title { min-width: 0; }
+.crumb { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.crumb .ic { width: 14px; height: 14px; }
+.files-head h2 { font-size: 21px; }
+.files-head h2 .ic { width: 26px; height: 26px; color: var(--accent); }
+.count-badge { padding: 1px 9px; border-radius: 10px; background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 500; }
+
+/* 図形 */
+.ed.tool-shape .stage { touch-action: none; cursor: crosshair; }
+.ed.tool-shape .item, .ed.tool-shape .item * { cursor: crosshair; }
+
+/* 選んだものを消すボタン */
+.h-del, .lb-del {
+  display: none; position: absolute; z-index: 3; place-items: center;
+  width: calc(26px * var(--inv)); height: calc(26px * var(--inv));
+  border-radius: 50%; background: #d64535; color: #fff; cursor: pointer !important;
+  box-shadow: 0 0 0 calc(2px * var(--inv)) #fff, 0 1px 4px rgba(0,0,0,.3);
+}
+.h-del .ic, .lb-del .ic { width: 66%; height: 66%; }
+.h-del { right: calc(-15px * var(--inv)); top: calc(-15px * var(--inv)); }
+.ed .item.selected:not(.locked) .h-del { display: grid; }
+.lb-del { display: grid; left: calc(-14px * var(--inv)); top: calc(-14px * var(--inv)); }
+.lasso-box.locked .lb-del { display: none; }
+.lasso-box.rot-below .lb-rot { top: auto; bottom: calc(-40px * var(--inv)); }
