@@ -749,7 +749,7 @@ function placeItem(d, it, dx = 0, dy = 0) {
   d.style.left = it.x + 'px';
   d.style.top = it.y + 'px';
   d.style.width = it.w + 'px';
-  if (it.type === 'sticky' || it.type === 'image') d.style.height = it.h + 'px';
+  if (it.type === "sticky" || it.type === "image" || it.vert) d.style.height = it.h + "px";
   d.style.transform = (dx || dy ? `translate(${dx}px, ${dy}px) ` : '') + (it.rot ? `rotate(${it.rot}deg)` : '');
 }
 function textView(it) {
@@ -759,7 +759,7 @@ function tagChips(it) {
   return it.tags?.length ? el('div', { class: 'item-tags' }, it.tags.map((t) => el('span', { class: 'tag', dataset: { tag: t }, title: `#${t} で探す` }, '#' + t))) : null;
 }
 function itemEl(it, edit) {
-  const d = el('div', { class: `item item-${it.type}` + (it.locked ? ' locked' : '') + (it.type === 'check' && it.checked ? ' checked' : ''), dataset: { id: it.id } });
+  const d = el('div', { class: `item item-${it.type}` + (it.locked ? ' locked' : '') + (it.type === "check" && it.checked ? " checked" : "") + (it.vert ? " vert" : ""), dataset: { id: it.id } });
   if (it.size) d.style.fontSize = it.size + 'px';
   if (it.color && it.type !== 'sticky') d.style.color = it.color;
   if (it.type === 'sticky') {
@@ -959,7 +959,7 @@ function openEditor(file) {
     eraser: { size: ERASER_W[1][0], mode: 'part' },
     shape: { kind: "rect", color: INK[0][0], width: PEN_W[1][0], fill: "none" },
     ruler: pref('ruler', '0') === '1',
-    textSize: TEXT_SIZES[1][0], textColor: INK[0][0], stickyColor: STICKY[0][0],
+    textVert: pref("textVert", "0") === "1", textSize: TEXT_SIZES[1][0], textColor: INK[0][0], stickyColor: STICKY[0][0],
     back: S.lastBoxHash && S.lastBoxHash.startsWith(boxHash(file.boxId)) ? S.lastBoxHash : boxHash(file.boxId, file.folderId),
   };
   const nameInput = el('input', { class: 'ed-name', value: file.name, maxlength: 80, 'aria-label': 'メモファイルの名前', placeholder: '無題のメモ' });
@@ -985,15 +985,82 @@ function openEditor(file) {
         el('div', { class: 'ed-title' }, nameInput, where),
         el('div', { class: 'ed-hist' }, ED.undoBtn, ED.redoBtn,
           iconBtn('more', 'その他', (e) => { e.stopPropagation(); editorMenu(e.currentTarget); })),
-        el('div', { class: 'tools', role: 'toolbar', 'aria-label': 'ツール' }, ED.toolBtns, imgBtn, funcBtn)),
+        makeTools([...ED.toolBtns, imgBtn, funcBtn])),
       ED.sub),
     ED.pagesBox);
   $('#main').replaceChildren(ED.root);
+  restoreTools();
   bindEditor(ED.root);
   renderPages();
   renderSub();
   updateHist();
   window.scrollTo(0, 0);
+}
+/* --- ツールの欄（選択・範囲選択…）: 左端のつまみをドラッグすると好きな場所に動かせる --- */
+function makeTools(btns) {
+  const grip = el('div', { class: 'tools-grip', title: 'ドラッグでツールの欄を動かす（ダブルクリックで元の場所に戻す）', 'aria-label': 'ツールの欄を動かす' }, icon('grip'));
+  const vert = el('button', { class: 'tools-mini', type: 'button', title: '縦並び／横並びを切り替え', 'aria-label': '縦並び／横並びを切り替え' }, icon('rotR'));
+  const dock = el('button', { class: 'tools-mini', type: 'button', title: '元の場所に戻す', 'aria-label': '元の場所に戻す' }, icon('close'));
+  const tools = el('div', { class: 'tools', role: 'toolbar', 'aria-label': 'ツール' }, grip, btns, el('div', { class: 'tools-extra' }, vert, dock));
+  dock.classList.add('tools-dock');
+  vert.addEventListener('click', () => {
+    if (!tools.classList.contains('floating')) {                // 元の場所で押したら、左に縦並びで浮かせる
+      setPref('toolsVert', '1');
+      setToolsFloat(tools, true, { x: 8, y: tools.getBoundingClientRect().bottom + 60 });
+      return;
+    }
+    const v = !tools.classList.contains('vertical');
+    tools.classList.toggle('vertical', v);
+    setPref('toolsVert', v ? '1' : '0');
+    placeTools(tools, parseFloat(tools.style.left) || 8, parseFloat(tools.style.top) || 80, true);
+  });
+  dock.addEventListener('click', () => setToolsFloat(tools, false));
+  grip.addEventListener('dblclick', () => setToolsFloat(tools, false));
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    e.preventDefault();
+    const r = tools.getBoundingClientRect();
+    const ox = e.clientX - r.left, oy = e.clientY - r.top;
+    try { grip.setPointerCapture(e.pointerId); } catch { /* なくても動く */ }
+    let moved = tools.classList.contains('floating');
+    const mv = (ev) => {
+      if (!moved) {
+        if (Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 4) return;
+        moved = true;
+        tools.classList.add('floating');
+        tools.classList.toggle('vertical', pref('toolsVert', '0') === '1');
+      }
+      placeTools(tools, ev.clientX - ox, ev.clientY - oy);
+    };
+    const up = () => {
+      grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
+      if (moved && tools.classList.contains('floating')) setToolsFloat(tools, true, { x: parseFloat(tools.style.left), y: parseFloat(tools.style.top) });
+    };
+    grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+  });
+  return tools;
+}
+function placeTools(tools, x, y, save) {
+  const w = tools.offsetWidth, h = tools.offsetHeight;
+  x = clamp(x, 4, Math.max(4, document.documentElement.clientWidth - w - 4));
+  y = clamp(y, 4, Math.max(4, innerHeight - h - 4));
+  tools.style.left = x + 'px'; tools.style.top = y + 'px';
+  if (save) setPref('toolsPos', JSON.stringify({ x, y }));
+  return { x, y };
+}
+function setToolsFloat(tools, on, pos) {
+  tools.classList.toggle('floating', on);
+  setPref('toolsFloat', on ? '1' : '0');
+  if (!on) { tools.classList.remove('vertical'); tools.style.left = tools.style.top = ''; return; }
+  tools.classList.toggle('vertical', pref('toolsVert', '0') === '1');
+  placeTools(tools, pos.x, pos.y, true);
+}
+function restoreTools() {
+  const tools = ED?.root.querySelector('.tools');
+  if (!tools || pref('toolsFloat', '0') !== '1') return;
+  let pos = { x: 8, y: 140 };
+  try { pos = { ...pos, ...JSON.parse(pref('toolsPos', '{}')) }; } catch { /* 初期位置のまま */ }
+  setToolsFloat(tools, true, pos);
 }
 function closeEditor() {
   if (!ED) return;
@@ -1242,6 +1309,7 @@ function renderSub() {
   } else if (t === 'text') {
     s.append(el('span', { class: 'sub-label', text: 'テキストボックス' }),
       seg(TEXT_SIZES, ED.textSize, (v) => { ED.textSize = v; }), colorRow(INK, ED.textColor, (v) => { ED.textColor = v; }),
+      seg([["h", "横書き"], ["v", "縦書き"]], ED.textVert ? "v" : "h", (v) => { ED.textVert = v === "v"; setPref("textVert", ED.textVert ? "1" : "0"); }),
       hint('置きたい場所をクリック'));
   } else if (t === 'sticky') {
     s.append(el('span', { class: 'sub-label', text: '付箋' }), colorRow(STICKY, ED.stickyColor, (v) => { ED.stickyColor = v; }),
@@ -1276,6 +1344,7 @@ function renderItemSub(s, page, it) {
   if (it.type === 'text' || it.type === 'check') s.append(seg(TEXT_SIZES, it.size, restyle((v) => { it.size = v; ED.textSize = v; })), colorRow(INK, it.color, restyle((v) => { it.color = v; ED.textColor = v; })));
   if (it.type === 'sticky') s.append(colorRow(STICKY, stickyBg(it.color), restyle((v) => { it.color = v; ED.stickyColor = v; })),
     seg(TEXT_SIZES.slice(0, 3), it.size, restyle((v) => { it.size = v; })));
+  if (it.type === "text" || it.type === "sticky") s.append(seg([["h", "横書き"], ["v", "縦書き"]], it.vert ? "v" : "h", (v) => setVert(page, it, v === "v")));
   if (TEXTY.has(it.type)) {
     s.append(toggleBtn('link', 'URL判定', it.urls !== false, () => { it.urls = it.urls === false; commit(); renderPage(page); renderSub(); }, '文字の中の URL をクリックできるリンクにする'),
       el('button', { class: 'btn small', type: 'button', onclick: () => editItemTags(page, it) }, icon('tag'), it.tags?.length ? 'タグ: ' + it.tags.map((x) => '#' + x).join(' ') : 'タグを付ける'));
@@ -1308,6 +1377,19 @@ function renderItemSub(s, page, it) {
     iconBtn('copy', '複製', () => duplicateItem(page, it), 'sm'),
     iconBtn('lock', '固定', () => { it.locked = true; if (ED.editId === it.id) document.activeElement?.blur(); commit(); renderPage(page); renderSub(); }, 'sm'),
     iconBtn('trash', '削除（Delete）', () => deleteSelected(), 'sm'));
+}
+/* 横書き ⇔ 縦書き。テキストボックスは縦書きのとき高さを決めておく（付箋はもともと決まっている） */
+function setVert(page, it, on) {
+  if (!!it.vert === on) return;
+  if (on) {
+    it.vert = true;
+    if (it.type === 'text') { const { h } = dims(page); const old = it.w; it.w = Math.max(120, Math.round(old * 0.45)); it.h = Math.round(clamp(old, 200, h - it.y)); it.x = Math.round(it.x + old - it.w); }
+  } else {
+    delete it.vert;
+    if (it.type === 'text') { const old = it.h; delete it.h; it.x = Math.max(0, it.x + it.w - Math.max(200, old)); it.w = Math.max(200, old); }
+  }
+  ED.textVert = on; setPref('textVert', on ? '1' : '0');
+  commit(); renderPage(page);
 }
 async function editItemTags(page, it) {
   const v = await dialog({ title: 'タグ', note: 'スペースか「、」で区切ります。文字の中に #タグ と書いてもタグになります。', fields: [{ key: 'tags', label: 'タグ', value: (it.tags || []).join(' '), placeholder: '例: 仕事 アイデア' }], ok: '保存' });
@@ -1354,7 +1436,7 @@ function startEditing(page, it) {
   view.replaceWith(ta);
   ED.editId = it.id;
   d.classList.add('editing');
-  if (it.type !== 'sticky') autosizeText(ta);
+  if (it.type !== "sticky" && !it.vert) autosizeText(ta);
   ta.focus({ preventScroll: true });
   const n = ta.value.length; ta.setSelectionRange(n, n);
 }
@@ -1416,7 +1498,7 @@ function bindEditor(root) {
     const it = pageById(stage.dataset.page)?.items.find((x) => x.id === d.dataset.id);
     if (!it) return;
     it.text = ta.value;
-    if (it.type !== 'sticky') autosizeText(ta);
+    if (it.type !== "sticky" && !it.vert) autosizeText(ta);
     const page = pageById(stage.dataset.page);
     if (page.conns?.length) drawConns(stage, page);
     scheduleSave(); commitSoon(); updateHist();
@@ -1554,6 +1636,11 @@ function createItem(page, type, pt) {
   if (type === 'text') {
     const x = clamp(pt.x - 8, 0, w - 120);
     it = { id: uid(), type: 'text', x: Math.round(x), y: Math.round(clamp(pt.y - ED.textSize * 0.9, 0, h - 60)), w: Math.round(Math.min(420, w - x)), text: '', size: ED.textSize, color: ED.textColor };
+    if (ED.textVert) {                                          // 縦書き: 右上から下へ書き、行は左へ増える
+      it.vert = true; it.w = 200;
+      it.x = Math.round(clamp(pt.x - 100, 0, w - 200)); it.y = Math.round(clamp(pt.y - 20, 0, h - 120));
+      it.h = Math.round(Math.min(480, h - it.y));
+    }
   } else {
     it = { id: uid(), type: 'sticky', x: Math.round(clamp(pt.x - 120, 0, w - 240)), y: Math.round(clamp(pt.y - 20, 0, h - 220)), w: 240, h: 220, text: '', size: 24, color: ED.stickyColor };
   }
@@ -1597,11 +1684,11 @@ function onItemDown(e, stage, page, d, pt) {
     if (!moved && Math.hypot(dx, dy) * s0 < 4) return;
     moved = true;
     if (handle === 'resize') {
-      if (it.type === 'sticky') { it.w = Math.round(clamp(o.w + dx, 100, W)); it.h = Math.round(clamp(o.h + dy, 80, H)); }
+      if (it.type === "sticky" || it.vert) { it.w = Math.round(clamp(o.w + dx, it.vert ? 50 : 100, W)); it.h = Math.round(clamp(o.h + dy, 80, H)); }
       else if (it.type === 'image') { it.w = Math.round(clamp(o.w + dx, 30, W * 1.5)); it.h = Math.round(it.w * ratio); }
       else it.w = Math.round(clamp(o.w + dx, 80, W * 1.5));
       placeItem(d, it);
-      const ta = d.querySelector('textarea'); if (ta && it.type !== 'sticky') autosizeText(ta);
+      const ta = d.querySelector('textarea'); if (ta && it.type !== "sticky" && !it.vert) autosizeText(ta);
       if (page.conns?.length) drawConns(stage, page);
     } else {
       // 動かしている間は transform だけ変える（レイアウトを計算し直さないので速い）
@@ -2487,7 +2574,11 @@ async function init() {
   });
 
   window.addEventListener('hashchange', () => { S.route = parseRoute(); render(); });
-  window.addEventListener('resize', () => { if (!isNarrow()) closeNav(); });
+  window.addEventListener('resize', () => {
+    if (!isNarrow()) closeNav();
+    const t = ED?.root.querySelector('.tools.floating');
+    if (t) placeTools(t, parseFloat(t.style.left), parseFloat(t.style.top));
+  });
   window.addEventListener('beforeunload', () => { if (ED) { if (ED.commitT) commit(); flushSave(); } });
   document.addEventListener('visibilitychange', () => { if (document.hidden && ED) flushSave(); });
 

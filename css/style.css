@@ -747,3 +747,36 @@ select.field-input { padding: 8px 9px; }
 }
 .h-conn .ic { width: 70%; height: 70%; }
 .ed .item.selected .h-conn { display: grid; }
+
+/* ===== 2026-11 追加4: ツールの欄を動かす ===== */
+.tools { align-items: stretch; }
+.tools-grip {
+  display: grid; place-items: center; flex: none; width: 18px;
+  border-radius: 7px; color: var(--muted); cursor: grab; touch-action: none; user-select: none;
+}
+.tools-grip:hover { background: var(--hover); color: var(--text); }
+.tools-grip:active { cursor: grabbing; }
+.tools-grip .ic { width: 18px; height: 18px; }
+.tools-extra { display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.tools:not(.floating) .tools-dock { display: none; }
+.tools-mini {
+  display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted);
+}
+.tools-mini:hover { background: var(--hover); color: var(--text); }
+.tools-mini .ic { width: 16px; height: 16px; }
+.tools.floating {
+  position: fixed; z-index: 45; order: 0; width: auto; max-width: calc(100vw - 8px); max-height: calc(100vh - 8px);
+  overflow: auto; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg);
+}
+.tools.floating .tools-extra { display: flex; }
+.tools.floating .tool { flex: none; }
+.tools.floating.vertical { flex-direction: column; }
+.tools.floating.vertical .tools-grip { width: auto; height: 18px; }
+.tools.floating.vertical .tools-grip .ic { transform: rotate(90deg); }
+.tools.floating.vertical .tools-extra { flex-direction: row; justify-content: center; }
+
+/* 縦書き */
+.item.vert .txt, .item.vert textarea { writing-mode: vertical-rl; text-orientation: mixed; height: 100%; width: 100%; padding: 8px 4px; overflow: visible; }
+.item-sticky.vert .txt, .item-sticky.vert textarea { height: 100%; padding: 10px 12px; overflow: hidden; }
+.item-text.vert .item-tags { position: absolute; left: 0; top: 100%; padding: 4px 0 0; }
