@@ -1,9 +1,9 @@
-/* IndexedDB の小さなラッパー。メモ・画像・設定をこのブラウザの中に保存する */
+/* IndexedDB の小さなラッパー。ボックス・フォルダ・メモファイル・画像・設定をこのブラウザの中に保存する（notes は旧形式のメモ） */
 'use strict';
 
 const DB = (() => {
   const NAME = 'my-notebook';
-  const VERSION = 1;
+  const VERSION = 2;
   let opening = null;
 
   function open() {
@@ -15,6 +15,7 @@ const DB = (() => {
         if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+        for (const s of ['boxes', 'folders', 'files']) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => { opening = null; reject(req.error); };
