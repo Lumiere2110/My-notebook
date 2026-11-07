@@ -823,3 +823,69 @@ body.editing .main { padding: 0; }
 .folder-shared { display: inline-grid; place-items: center; color: var(--muted); }
 .folder-shared .ic { width: 14px; height: 14px; }
 .file-more-places, .where-more { margin-left: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+/* ===== スマホ・タブレット（あとから追加したルールより後ろに置いて、上書きされないようにする） ===== */
+.search { min-width: 0; }
+.sidebar { height: calc(100dvh - 64px); }
+@media (max-width: 760px) {
+  .box-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .folders { position: static; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .folder-item.active { box-shadow: inset 0 0 0 1px var(--accent); }
+}
+@media (max-width: 600px) {
+  .search { height: 42px; padding-left: 10px; }
+  .search input { padding: 0 6px; }
+  .main { padding: 14px 12px 80px; }
+  .view-title { margin-bottom: 12px; font-size: 18px; }
+  .files-head { padding: 8px 10px; }
+  .files-head h2 { font-size: 18px; }
+  /* iPhone で入力欄を押したときに画面が勝手に拡大されないよう、16px 以上にする */
+  .field-input, .sub-input, select { font-size: 16px; }
+}
+.empty-state .btn .ic { width: 20px; height: 20px; margin: 0; opacity: 1; }
+
+/* --- メモファイルの画面（スマホ） --- */
+.pages-scroll { touch-action: pan-x pan-y; }
+.ed .stage { touch-action: pan-x pan-y; }
+.ed .lasso-box, .ed .item.selected { touch-action: none; }
+/* ペン（Apple Pencil など）を使ったら、指はスクロールに使う */
+.ed.pen-seen.tool-pen .stage, .ed.pen-seen.tool-marker .stage, .ed.pen-seen.tool-eraser .stage,
+.ed.pen-seen.tool-shape .stage, .ed.pen-seen.tool-lasso .stage { touch-action: pan-x pan-y; }
+.ed.pinching .stage, .ed.pinching .item { touch-action: none; }
+@media (pointer: coarse) {
+  /* 指で選んでいないアイテムをなぞったら、ページをスクロールする */
+  .ed.tool-select .item:not(.selected) { touch-action: pan-x pan-y; }
+  /* 選んだものの丸いボタンを指で押しやすい大きさに */
+  .h-move, .h-resize, .h-del, .h-conn, .lb-rot, .lb-scale, .lb-lock, .lb-del { width: calc(36px * var(--inv)); height: calc(36px * var(--inv)); }
+  .h-move { left: calc(-20px * var(--inv)); top: calc(-20px * var(--inv)); }
+  .h-resize { right: calc(-20px * var(--inv)); bottom: calc(-20px * var(--inv)); }
+  .h-del { right: calc(-20px * var(--inv)); top: calc(-20px * var(--inv)); }
+  .h-conn { right: calc(-20px * var(--inv)); margin-top: calc(-18px * var(--inv)); }
+  .lb-rot { top: calc(-50px * var(--inv)); margin-left: calc(-18px * var(--inv)); }
+  .lasso-box.rot-below .lb-rot { bottom: calc(-50px * var(--inv)); }
+  .lb-scale { right: calc(-19px * var(--inv)); bottom: calc(-19px * var(--inv)); }
+  .lb-lock { right: calc(-17px * var(--inv)); top: calc(-17px * var(--inv)); }
+  .lb-del { left: calc(-19px * var(--inv)); top: calc(-19px * var(--inv)); }
+  .tool { min-height: 44px; }
+}
+@media (max-width: 600px) {
+  /* メモファイルを開いている間は上の検索バーを隠して、ページを広く使う（← で戻れる） */
+  body.editing .topbar { display: none; }
+  body.editing .ed { height: 100vh; height: 100dvh; }
+  .ed-top { padding-top: env(safe-area-inset-top); }
+  .ed-bar { gap: 4px; padding: 4px 6px; }
+  .ed-title { flex: 1 1 0; }
+  .ed-name { font-size: 16px; padding: 2px 4px; }
+  .ed-where { display: none; }
+  .ed-hist { order: 1; }
+  .ed-hist .icon-btn { width: 36px; height: 36px; }
+  .zoom { margin-right: 0; }
+  .zoom .icon-btn { display: none; }        /* 拡大・縮小は2本指のピンチで。% を押すと倍率の一覧 */
+  .tools { order: 4; }
+  .tool { min-width: 50px; padding: 4px 4px; }
+  .ed-sub { padding: 4px 10px; min-height: 0; gap: 6px 10px; }
+  /* 長い説明はスマホでは出さない（固定中のお知らせは出す） */
+  .ed-sub .sub-hint:not(:has(.ic)) { display: none; }
+  .ed-sub:not(:has(> :not(.sub-hint))) { display: none; }
+  .pages-scroll { padding-bottom: env(safe-area-inset-bottom); }
+}

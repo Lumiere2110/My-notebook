@@ -466,6 +466,7 @@ function render() {
   const q = S.query.trim();
   if (ED && (r.name !== 'file' || r.fileId !== ED.file.id || q)) closeEditor();
   document.body.classList.toggle('editing', r.name === 'file' && !q);
+  setViewport(r.name === 'file' && !q);
   renderNav();
   if (ED) return;                       // 開いているエディターはそのまま
   fitRO.disconnect();
@@ -1130,6 +1131,13 @@ function dragConn(e, stage, page, it) {
   });
 }
 
+/* スマホでメモファイルを開いている間は、ブラウザ自体の拡大を止める（ページの拡大は2本指のピンチで行う）。
+   iPhone で文字を入力しようとしたときに画面が勝手に拡大されるのも防ぐ */
+function setViewport(editing) {
+  const m = document.querySelector('meta[name="viewport"]');
+  if (m) m.content = 'width=device-width, initial-scale=1' + (editing ? ', maximum-scale=1' : '');
+}
+
 /* ===== エディター ===== */
 function openEditor(file) {
   ED = {
@@ -1183,6 +1191,7 @@ function openEditor(file) {
     setZoom(z, e.clientX, e.clientY);
   }, { passive: false });
   restoreTools();
+  bindTouch(ED.root);
   bindEditor(ED.root);
   // 文字を入力中に上のバーのボタン（大きさ・色など）を押しても、入力欄からフォーカスを外さない
   ED.root.querySelector('.ed-top').addEventListener('mousedown', (e) => { if (ED?.editId && e.target.closest('button')) e.preventDefault(); });
@@ -1753,6 +1762,85 @@ function track(e, onMove, onUp) {
   };
   t.addEventListener('pointermove', mv); t.addEventListener('pointerup', up); t.addEventListener('pointercancel', up);
 }
+/* --- スマホ・タブレット: 2本指でつまむと拡大・縮小、2本指で動かすとスクロール。
+   Apple Pencil などのペンを使ったら、指はスクロール用になる（書くのはペンだけ） --- */
+const PEN_ONLY_TOOLS = new Set(['pen', 'marker', 'eraser', 'shape', 'lasso']);
+function bindTouch(root) {
+  const sc = ED.scroller;
+  const fingers = new Map();       // 画面にふれている指: pointerId → 最後の位置
+  let first = null;                // 1本目の指で始めた操作（2本目が来たら取り消す）
+  let pz = null, raf = 0, undoTo = null, synth = false;
+  const startPinch = () => {
+    if (ED.pinch) return;
+    ED.pinch = true;
+    root.classList.add('pinching');
+    if (!first) return;
+    const f = first; first = null;
+    const at = fingers.get(f.id) || { x: 0, y: 0 };
+    // 1本目の指で書きかけた線などは、なかったことにする
+    synth = true;
+    try { root.dispatchEvent(new PointerEvent('pointercancel', { pointerId: f.id, pointerType: 'touch', clientX: at.x, clientY: at.y, bubbles: true })); } finally { synth = false; }
+    // ページを描き直すと指の操作が途切れるので、取り消しは指を離してから
+    if (ED && ED.snap !== f.snap) undoTo = f;
+  };
+  const endPinch = () => {
+    if (!ED) return;
+    ED.pinch = false; pz = null; root.classList.remove('pinching');
+    const f = undoTo; undoTo = null;
+    if (f && ED.undo.length === f.undo + 1) { ED.undo.length = f.undo; ED.redo = f.redo; restore(f.snap); }
+  };
+  root.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'pen' && !ED.penSeen) { ED.penSeen = true; root.classList.add('pen-seen'); }
+    if (e.pointerType !== 'touch') return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ED.pinch || fingers.size > 1) { e.stopPropagation(); e.preventDefault(); startPinch(); return; }
+    if (ED.penSeen && PEN_ONLY_TOOLS.has(ED.tool) && !e.target.closest('.lasso-box, .item.selected')) { e.stopPropagation(); first = null; return; }
+    if (ED.commitT) commit();
+    first = { id: e.pointerId, snap: ED.snap, undo: ED.undo.length, redo: ED.redo.slice() };
+  }, true);
+  root.addEventListener('pointermove', (e) => { if (fingers.has(e.pointerId)) fingers.set(e.pointerId, { x: e.clientX, y: e.clientY }); }, true);
+  const lift = (e) => {
+    if (synth || e.pointerType !== 'touch') return;
+    fingers.delete(e.pointerId);
+    if (first?.id === e.pointerId) first = null;
+    if (!fingers.size) endPinch();
+  };
+  root.addEventListener('pointerup', lift, true);
+  root.addEventListener('pointercancel', lift, true);
+
+  const two = (e) => {
+    const [a, b] = e.touches;
+    return { d: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)), x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+  };
+  sc.addEventListener('touchstart', (e) => {
+    if (e.touches.length < 2) return;
+    e.preventDefault();
+    startPinch();
+    const t = two(e);
+    pz = { d0: t.d, z0: ED.zoom, x: t.x, y: t.y, t };
+  }, { passive: false });
+  sc.addEventListener('touchmove', (e) => {
+    if (!pz || e.touches.length < 2) return;
+    e.preventDefault();
+    pz.t = two(e);
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      if (!ED || !pz) return;
+      const t = pz.t;
+      setZoom(pz.z0 * t.d / pz.d0, t.x, t.y);
+      sc.scrollLeft -= t.x - pz.x; sc.scrollTop -= t.y - pz.y;
+      pz.x = t.x; pz.y = t.y;
+    });
+  }, { passive: false });
+  const touchEnd = (e) => {
+    if (e.touches.length >= 2 && pz) { const t = two(e); pz = { d0: t.d, z0: ED.zoom, x: t.x, y: t.y, t }; return; }
+    pz = null;
+    if (!e.touches.length) endPinch();
+  };
+  sc.addEventListener('touchend', touchEnd);
+  sc.addEventListener('touchcancel', touchEnd);
+}
 function bindEditor(root) {
   root.addEventListener('pointerdown', (e) => {
     const stage = e.target.closest('.stage');
@@ -1850,7 +1938,14 @@ function onStageDown(e, stage) {
   const d = e.target.closest('.item');
   if (d) { if (ED.lasso) clearLasso(); return onItemDown(e, stage, page, d, pt); }
   if (document.activeElement?.closest?.('.stage')) document.activeElement.blur();
-  if (tool === 'text' || tool === 'sticky' || tool === 'check') { e.preventDefault(); createItem(page, tool, pt); setTool('select'); return; }
+  if (tool === 'text' || tool === 'sticky' || tool === 'check') {
+    if (e.pointerType === 'touch') {                            // 指: スクロールだったら置かない。指を離したときに置く
+      e.preventDefault();                                       // （スクロールは止まらない。あとのマウスのイベントで入力欄が閉じないように）
+      track(e, () => {}, (ev) => { if (ev.type !== 'pointercancel' && ED?.tool === tool) { createItem(page, tool, pt); setTool('select'); } });
+      return;
+    }
+    e.preventDefault(); createItem(page, tool, pt); setTool('select'); return;
+  }
   // 選択ツールで線や図形をクリック → その線を選ぶ（そのままドラッグで移動もできる）
   if (ED.lasso) clearLasso();
   const ch = hitConn(stage, page, pt);
@@ -1973,9 +2068,20 @@ function onItemDown(e, stage, page, d, pt) {
   if (!handle && ED.editId === it.id && e.target.tagName === 'TEXTAREA') return;   // 入力中の文字の操作はそのまま
   if (ED.editId && ED.editId !== it.id) document.activeElement?.blur();
   if (!handle && e.target.closest('.ctl')) { if (ED.sel?.itemId !== it.id) select(page.id, it.id); return; }   // チェック・プルダウンはそのまま使える
+  const onGrip = !!e.target.closest('.grip');
+  if (e.pointerType === 'touch' && !handle && ED.sel?.itemId !== it.id && ED.tool === 'select') {
+    // 指でまだ選んでいないアイテムにふれたとき: なぞったらページのスクロール、トンと押したら選ぶ（動かすのは選んでから）
+    e.preventDefault();
+    track(e, () => {}, (ev) => {
+      if (ev.type === 'pointercancel' || !ED || !pageById(page.id)?.items.includes(it)) return;
+      select(page.id, it.id);
+      if (it.type === 'link' && !onGrip && !it.locked) openLink(it);
+      else if (TEXTY.has(it.type) && ED.editId !== it.id) startEditing(page, it);
+    });
+    return;
+  }
   e.preventDefault();
   if (ED.sel?.itemId !== it.id) select(page.id, it.id);
-  const onGrip = !!e.target.closest('.grip');
   if (it.locked) {                                             // 固定中は動かさない（リンクは開ける）
     track(e, () => {}, () => { if (it.type === 'link' && !onGrip) openLink(it); });
     return;
@@ -2922,6 +3028,8 @@ async function init() {
   }
   S.route = parseRoute();
   render();
+  // ホーム画面に追加して、オフラインでも開けるように
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 init();
