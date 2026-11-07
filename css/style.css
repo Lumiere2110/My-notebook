@@ -844,48 +844,109 @@ body.editing .main { padding: 0; }
 }
 .empty-state .btn .ic { width: 20px; height: 20px; margin: 0; opacity: 1; }
 
-/* --- メモファイルの画面（スマホ） --- */
+/* ===== 端末ごとの表示（body.dev-phone / dev-tablet / dev-pc。右上の「︙」→「使う端末を変える」で切り替え） ===== */
 .pages-scroll { touch-action: pan-x pan-y; }
 .ed .stage { touch-action: pan-x pan-y; }
 .ed .lasso-box, .ed .item.selected { touch-action: none; }
-/* ペン（Apple Pencil など）を使ったら、指はスクロールに使う */
+/* ペン（Apple Pencil など）で書くときは、指はスクロールに使う */
 .ed.pen-seen.tool-pen .stage, .ed.pen-seen.tool-marker .stage, .ed.pen-seen.tool-eraser .stage,
 .ed.pen-seen.tool-shape .stage, .ed.pen-seen.tool-lasso .stage { touch-action: pan-x pan-y; }
 .ed.pinching .stage, .ed.pinching .item { touch-action: none; }
-@media (pointer: coarse) {
-  /* 指で選んでいないアイテムをなぞったら、ページをスクロールする */
-  .ed.tool-select .item:not(.selected) { touch-action: pan-x pan-y; }
-  /* 選んだものの丸いボタンを指で押しやすい大きさに */
-  .h-move, .h-resize, .h-del, .h-conn, .lb-rot, .lb-scale, .lb-lock, .lb-del { width: calc(36px * var(--inv)); height: calc(36px * var(--inv)); }
-  .h-move { left: calc(-20px * var(--inv)); top: calc(-20px * var(--inv)); }
-  .h-resize { right: calc(-20px * var(--inv)); bottom: calc(-20px * var(--inv)); }
-  .h-del { right: calc(-20px * var(--inv)); top: calc(-20px * var(--inv)); }
-  .h-conn { right: calc(-20px * var(--inv)); margin-top: calc(-18px * var(--inv)); }
-  .lb-rot { top: calc(-50px * var(--inv)); margin-left: calc(-18px * var(--inv)); }
-  .lasso-box.rot-below .lb-rot { bottom: calc(-50px * var(--inv)); }
-  .lb-scale { right: calc(-19px * var(--inv)); bottom: calc(-19px * var(--inv)); }
-  .lb-lock { right: calc(-17px * var(--inv)); top: calc(-17px * var(--inv)); }
-  .lb-del { left: calc(-19px * var(--inv)); top: calc(-19px * var(--inv)); }
-  .tool { min-height: 44px; }
+
+/* --- スマホ・iPad 共通: 指で操作しやすく --- */
+.dev-phone .ed.tool-select .item:not(.selected),
+.dev-tablet .ed.tool-select .item:not(.selected) { touch-action: pan-x pan-y; }   /* 選んでいないアイテムをなぞるとスクロール */
+:is(.dev-phone, .dev-tablet) :is(.h-move, .h-resize, .h-del, .h-conn, .lb-rot, .lb-scale, .lb-lock, .lb-del) { width: calc(36px * var(--inv)); height: calc(36px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .h-move { left: calc(-20px * var(--inv)); top: calc(-20px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .h-resize { right: calc(-20px * var(--inv)); bottom: calc(-20px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .h-del { right: calc(-20px * var(--inv)); top: calc(-20px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .h-conn { right: calc(-20px * var(--inv)); margin-top: calc(-18px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .lb-rot { top: calc(-50px * var(--inv)); margin-left: calc(-18px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .lasso-box.rot-below .lb-rot { bottom: calc(-50px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .lb-scale { right: calc(-19px * var(--inv)); bottom: calc(-19px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .lb-lock { right: calc(-17px * var(--inv)); top: calc(-17px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .lb-del { left: calc(-19px * var(--inv)); top: calc(-19px * var(--inv)); }
+:is(.dev-phone, .dev-tablet) .menu-item { min-height: 44px; }
+:is(.dev-phone, .dev-tablet) .file-card:hover { transform: none; }
+:is(.dev-phone, .dev-tablet) .dot-btn, :is(.dev-phone, .dev-tablet) .sticky-btn { width: 32px; height: 32px; }
+:is(.dev-phone, .dev-tablet) .seg button { padding: 6px 12px; }
+
+/* --- スマホ --- */
+.dev-phone .icon-btn { width: 44px; height: 44px; }
+.dev-phone .file-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.dev-phone.layout-list .file-grid { grid-template-columns: 1fr; }
+.dev-phone .main { padding: 14px 12px 80px; }
+/* メモファイルを開いている間は上の検索バーを隠して、ページを画面いっぱいに（← で戻れる） */
+.dev-phone.editing .topbar { display: none; }
+.dev-phone.editing .ed { height: 100vh; height: 100dvh; }
+.dev-phone .ed-top { padding-top: env(safe-area-inset-top); }
+.dev-phone .ed-bar { flex-wrap: nowrap; gap: 4px; padding: 4px 6px; }
+.dev-phone .ed-title { flex: 1 1 0; }
+.dev-phone .ed-name { font-size: 16px; padding: 2px 4px; }
+.dev-phone .ed-where { display: none; }
+.dev-phone .ed-hist { order: 1; }
+.dev-phone .ed-hist .icon-btn { width: 40px; height: 40px; }
+.dev-phone .zoom { margin-right: 0; }
+.dev-phone .zoom .icon-btn { display: none; }        /* 拡大・縮小は2本指のピンチで。% を押すと倍率の一覧 */
+.dev-phone .ed-sub { padding: 4px 10px; min-height: 0; gap: 6px 10px; }
+.dev-phone .ed-sub .sub-hint:not(:has(.ic)) { display: none; }          /* 長い説明は出さない（固定中のお知らせは出す） */
+.dev-phone .ed-sub:not(:has(> :not(.sub-hint))) { display: none; }
+/* ツールの欄は画面の下（親指で届く場所）に固定 */
+.dev-phone .ed .tools {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; width: auto; max-width: none;
+  padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); border-radius: 0;
+  background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -2px 10px rgba(0,0,0,.08);
 }
+.dev-phone .ed .tools-grip, .dev-phone .ed .tools-extra { display: none; }
+.dev-phone .ed .tool { flex: 1 0 auto; min-width: 54px; min-height: 50px; justify-content: center; }
+.dev-phone .ed:has(.item.editing) .tools { display: none; }             /* 文字を入力している間はキーボードの邪魔をしない */
+.dev-phone .pages-scroll { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+.dev-phone .pages { padding: 4px 8px 40px; }
+
+/* --- iPad・タブレット --- */
+.dev-tablet .icon-btn { width: 44px; height: 44px; }
+.dev-tablet .file-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 20px; }
+.dev-tablet .ed-sub .sub-hint { display: none; }
+.dev-tablet .ed-sub .sub-hint:has(.ic) { display: inline; }
+/* ツールの欄はページの左に縦に並べる（左手の親指で押しやすい） */
+.dev-tablet .ed .tools:not(.floating) {
+  position: fixed; left: 8px; top: calc(50% + 40px); transform: translateY(-50%); z-index: 40;
+  flex-direction: column; width: auto; max-height: calc(100dvh - 180px); overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg);
+}
+.dev-tablet .ed .tools:not(.floating) .tools-grip { width: auto; height: 18px; }
+.dev-tablet .ed .tools:not(.floating) .tools-grip .ic { transform: rotate(90deg); }
+.dev-tablet .ed .tools:not(.floating) .tools-extra { display: none; }
+.dev-tablet .ed .tool { min-width: 64px; min-height: 52px; justify-content: center; }
+.dev-tablet .ed:not(:has(.tools.floating)) .pages-scroll { margin-left: 88px; }
+
+/* --- PC: いままでどおり（マウスとキーボード向け） --- */
+
+/* ===== 端末を選ぶ画面 ===== */
+.device-dialog { width: min(720px, 100%); max-width: 720px; padding: 22px 22px 12px; max-height: calc(100dvh - 32px); overflow-y: auto; }
+.device-dialog h2 { margin: 0 0 6px; font-size: 20px; }
+.device-dialog .note { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+.device-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 10px; }
+.device-card {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0;
+  padding: 18px 12px 14px; border: 2px solid var(--border); border-radius: 14px;
+  background: var(--surface); color: var(--text); text-align: center;
+  transition: border-color .15s, background .15s, transform .15s;
+}
+.device-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.device-card.sel { border-color: var(--accent); background: var(--active); color: var(--active-text); }
+.device-ic { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: var(--surface-2); color: var(--accent); }
+.device-ic .ic { width: 36px; height: 36px; }
+.device-name { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 17px; font-weight: 700; }
+.device-badge { padding: 1px 8px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; }
+.device-badge.now { background: var(--surface-2); color: var(--muted); }
+.device-feats { margin: 0; padding: 0; list-style: none; font-size: 12.5px; line-height: 1.5; color: var(--muted); text-align: left; }
+.device-feats li { position: relative; padding-left: 14px; margin-top: 3px; }
+.device-feats li::before { content: "・"; position: absolute; left: 0; }
+.device-card.sel .device-feats { color: inherit; }
 @media (max-width: 600px) {
-  /* メモファイルを開いている間は上の検索バーを隠して、ページを広く使う（← で戻れる） */
-  body.editing .topbar { display: none; }
-  body.editing .ed { height: 100vh; height: 100dvh; }
-  .ed-top { padding-top: env(safe-area-inset-top); }
-  .ed-bar { gap: 4px; padding: 4px 6px; }
-  .ed-title { flex: 1 1 0; }
-  .ed-name { font-size: 16px; padding: 2px 4px; }
-  .ed-where { display: none; }
-  .ed-hist { order: 1; }
-  .ed-hist .icon-btn { width: 36px; height: 36px; }
-  .zoom { margin-right: 0; }
-  .zoom .icon-btn { display: none; }        /* 拡大・縮小は2本指のピンチで。% を押すと倍率の一覧 */
-  .tools { order: 4; }
-  .tool { min-width: 50px; padding: 4px 4px; }
-  .ed-sub { padding: 4px 10px; min-height: 0; gap: 6px 10px; }
-  /* 長い説明はスマホでは出さない（固定中のお知らせは出す） */
-  .ed-sub .sub-hint:not(:has(.ic)) { display: none; }
-  .ed-sub:not(:has(> :not(.sub-hint))) { display: none; }
-  .pages-scroll { padding-bottom: env(safe-area-inset-bottom); }
+  .device-list { grid-template-columns: 1fr; }
+  .device-card { display: grid; grid-template-columns: 56px 1fr; align-items: center; text-align: left; padding: 12px; column-gap: 12px; }
+  .device-ic { width: 52px; height: 52px; grid-row: span 2; }
+  .device-name { flex-direction: row; flex-wrap: wrap; align-items: center; }
 }

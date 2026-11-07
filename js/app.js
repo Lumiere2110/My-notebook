@@ -19,6 +19,10 @@ const ICONS = {
   auto: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 17.93V4.07A8 8 0 0 1 13 19.93z',
   edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
   plus: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+  phone: 'M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z',
+  tablet: 'M18.5 0h-14C3.12 0 2 1.12 2 2.5v19C2 22.88 3.12 24 4.5 24h14c1.38 0 2.5-1.12 2.5-2.5v-19C21 1.12 19.88 0 18.5 0zm-7 23c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm7.5-4H4V3h15v16z',
+  laptop: 'M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z',
+  finger: 'M9 11.24V7.5C9 6.12 10.12 5 11.5 5S14 6.12 14 7.5v3.74c1.21-.81 2-2.18 2-3.74C16 5.01 13.99 3 11.5 3S7 5.01 7 7.5c0 1.56.79 2.93 2 3.74zm9.84 4.63l-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6c0-.83-.67-1.5-1.5-1.5S10 6.67 10 7.5v10.74l-3.43-.72c-.08-.01-.15-.03-.24-.03-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27c.01-.07.02-.14.02-.2 0-.62-.38-1.16-.91-1.38z',
   more: 'M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
   copy: 'M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z',
   box: 'M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4l16-.02V7z',
@@ -268,6 +272,7 @@ const S = {
   route: { name: 'home' },
   query: '',
   layout: pref('layout', 'grid'),
+  device: pref('device', ''),
   theme: pref('theme', 'auto'),
 };
 let ED = null;            // 開いているメモファイルのエディター
@@ -1131,6 +1136,70 @@ function dragConn(e, stage, page, it) {
   });
 }
 
+/* ===== 使う端末（スマホ・iPad・PC）。端末ごとに画面と操作を変える ===== */
+const DEVICES = [
+  ['phone', 'phone', 'スマホ', ['ツールは画面の下（親指で届く場所）', 'メモを開くとページを画面いっぱいに', '指で書く・2本指で拡大とスクロール', 'ボタンを大きく']],
+  ['tablet', 'tablet', 'iPad・タブレット', ['ツールは左の縦の欄', 'Apple Pencil で書いて、指でスクロール（切り替えできます）', '2本指で拡大・縮小', 'ボタンを少し大きく']],
+  ['pc', 'laptop', 'PC', ['ツールは上の欄', 'マウスとキーボードで操作（ショートカット・Ctrl+ホイールで拡大）', 'たくさんのメモを一覧で']],
+];
+function guessDevice() {
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  const ipad = navigator.maxTouchPoints > 1 && /Macintosh|iPad/.test(navigator.userAgent);
+  if (!coarse && !ipad) return 'pc';
+  return Math.min(screen.width, screen.height) < 600 ? 'phone' : 'tablet';
+}
+function device() { return S.device || 'pc'; }
+function applyDevice() {
+  const d = device();
+  for (const [k] of DEVICES) document.body.classList.toggle('dev-' + k, k === d);
+  if (ED) closeEditorAndReopen();
+}
+/* 端末を変えたら、開いているメモファイルを開き直して画面を作り直す */
+function closeEditorAndReopen() {
+  if (!ED) return;
+  if (ED.commitT) commit();
+  flushSave();
+  closeEditor();
+  render();
+}
+/* 端末を選ぶ画面。first = 初めて開いたとき（選ぶまで閉じられない） */
+function chooseDevice(first = false) {
+  return new Promise((resolve) => {
+    const guess = guessDevice(), cur = S.device;
+    const wrap = el('div', { class: 'modal-wrap device-wrap' });
+    const done = (v) => {
+      document.removeEventListener('keydown', esc, true);
+      wrap.remove();
+      if (v) {
+        const changed = v !== S.device;
+        S.device = v; setPref('device', v); applyDevice();
+        if (changed && !first) toast(`「${DEVICES.find((x) => x[0] === v)[2]}」用の表示にしました`);
+      }
+      resolve(v);
+    };
+    const esc = (e) => { if (e.key === 'Escape' && !first) { e.stopPropagation(); done(null); } };
+    const cards = DEVICES.map(([k, ic, name, feats]) => el('button', {
+      class: 'device-card' + (k === (cur || guess) ? ' sel' : ''), type: 'button', dataset: { device: k }, onclick: () => done(k),
+    },
+    el('span', { class: 'device-ic' }, icon(ic)),
+    el('span', { class: 'device-name' }, name,
+      k === guess ? el('span', { class: 'device-badge', text: 'この端末におすすめ' }) : null,
+      k === cur ? el('span', { class: 'device-badge now', text: 'いま使用中' }) : null),
+    el('ul', { class: 'device-feats' }, feats.map((f) => el('li', { text: f })))));
+    const box = el('div', { class: 'modal device-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': '使う端末を選ぶ' },
+      el('h2', { text: first ? 'ようこそ！ どの端末で使いますか？' : '使う端末を変える' }),
+      el('p', { class: 'note', text: '端末に合わせて、画面の並びや操作のしかたを変えます。あとから右上の「︙」→「使う端末を変える」でいつでも変えられます。' }),
+      el('div', { class: 'device-list' }, cards),
+      first ? null : el('div', { class: 'dialog-foot' }, el('button', { class: 'btn', type: 'button', text: 'キャンセル', onclick: () => done(null) })));
+    if (!first) wrap.addEventListener('mousedown', (e) => { if (e.target === wrap) done(null); });
+    document.addEventListener('keydown', esc, true);
+    wrap.append(box); document.body.append(wrap);
+    box.querySelector('.device-card.sel')?.focus();
+  });
+}
+/* iPad: 指でも書くか（オフのときは Apple Pencil で書いて、指はスクロール） */
+function fingerDraw() { return device() !== 'tablet' || pref('fingerDraw', '0') === '1'; }
+
 /* スマホでメモファイルを開いている間は、ブラウザ自体の拡大を止める（ページの拡大は2本指のピンチで行う）。
    iPhone で文字を入力しようとしたときに画面が勝手に拡大されるのも防ぐ */
 function setViewport(editing) {
@@ -1190,7 +1259,8 @@ function openEditor(file) {
     const z = clamp(ED.zoom * Math.exp(-e.deltaY * 0.0025), ZOOMS[0], ZOOMS[ZOOMS.length - 1]);
     setZoom(z, e.clientX, e.clientY);
   }, { passive: false });
-  restoreTools();
+  if (device() !== 'phone') restoreTools();          // スマホのツールは画面の下に固定
+  if (!fingerDraw()) { ED.penSeen = true; ED.root.classList.add('pen-seen'); }
   bindTouch(ED.root);
   bindEditor(ED.root);
   // 文字を入力中に上のバーのボタン（大きさ・色など）を押しても、入力欄からフォーカスを外さない
@@ -1506,6 +1576,7 @@ function editorMenu(anchor) {
     ['edit', '名前を変更', () => renameFile(f)],
     ['moveTo', '別のフォルダへ移動', () => moveFile(f)],
     ['copy', 'コピーを作る', () => cloneFile(f)],
+    [DEVICES.find((x) => x[0] === device())[1], '使う端末を変える', () => chooseDevice()],
     ['trash', 'このメモファイルを削除（ゴミ箱へ）', () => deleteFile(f), true],
   ]);
 }
@@ -1515,7 +1586,7 @@ function setTool(t) {
   if (!ED) return;
   ED.tool = t;
   ED.toolBtns.forEach((b) => b.setAttribute('aria-pressed', b.dataset.tool === t ? 'true' : 'false'));
-  ED.root.className = 'ed tool-' + t;
+  ED.root.className = ED.root.className.replace(/\btool-\S+/, 'tool-' + t);
   if (ED.lasso && t !== "lasso" && t !== "select") clearLasso(); if (ED.csel) clearConnSel();
   if (t !== 'select') {
     if (document.activeElement?.closest?.('.stage')) document.activeElement.blur();
@@ -1561,10 +1632,21 @@ function toggleBtn(ic, label, on, onClick, title) {
   return el('button', { class: 'toggle', type: 'button', 'aria-pressed': on ? 'true' : 'false', title: title || label, onclick: onClick }, icon(ic), label);
 }
 function hint(t) { return el('span', { class: 'sub-hint', text: t }); }
+function fingerToggle() {
+  if (device() !== 'tablet') return null;
+  return toggleBtn('finger', '指でも書く', fingerDraw(), () => {
+    const on = !fingerDraw();
+    setPref('fingerDraw', on ? '1' : '0');
+    ED.penSeen = !on; ED.root.classList.toggle('pen-seen', !on);
+    toast(on ? '指でも書けるようにしました（スクロールは2本指で）' : 'Apple Pencil で書いて、指でスクロールします');
+    renderSub();
+  }, '指で書くか、指はスクロールに使うか');
+}
 function renderSub() {
   if (!ED) return;
   const s = ED.sub, t = ED.tool;
   s.replaceChildren();
+  queueMicrotask(() => { if (ED?.sub === s && PEN_ONLY_TOOLS.has(t)) { const b = fingerToggle(); if (b) s.insertBefore(b, s.querySelector('.sub-hint')); } });
   const sel = selected();
   if (t === 'pen' || t === 'marker') {
     const cfg = ED[t];
@@ -1790,7 +1872,8 @@ function bindTouch(root) {
     if (f && ED.undo.length === f.undo + 1) { ED.undo.length = f.undo; ED.redo = f.redo; restore(f.snap); }
   };
   root.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'pen' && !ED.penSeen) { ED.penSeen = true; root.classList.add('pen-seen'); }
+    // ペンを使ったら、指はスクロール用に（iPad は「指でも書く」の切り替えで決める）
+    if (e.pointerType === 'pen' && !ED.penSeen && device() !== 'tablet') { ED.penSeen = true; root.classList.add('pen-seen'); }
     if (e.pointerType !== 'touch') return;
     fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ED.pinch || fingers.size > 1) { e.stopPropagation(); e.preventDefault(); startPinch(); return; }
@@ -2921,7 +3004,7 @@ async function init() {
   $('#searchClear').append(icon('close'));
   $('#moreBtn').append(icon('more'));
   if (pref('navMini', '0') === '1') document.body.classList.add('nav-mini');
-  applyTheme(); applyLayout();
+  applyTheme(); applyLayout(); applyDevice();
 
   $('#navToggle').addEventListener('click', toggleNav);
   $('#scrim').addEventListener('click', closeNav);
@@ -2936,6 +3019,7 @@ async function init() {
       ['upload', 'バックアップから読み込む', () => $('#importFile').click()],
       ['box', '新しいボックス', createBox],
       ['trash', 'ゴミ箱ボックス', () => { clearSearch(); go('#/trash'); }],
+      [DEVICES.find((x) => x[0] === device())[1], '使う端末を変える', () => chooseDevice()],
     ]);
     const r = e.currentTarget.getBoundingClientRect();
     pop.style.left = Math.max(8, r.right - pop.offsetWidth) + 'px';
@@ -3028,6 +3112,7 @@ async function init() {
   }
   S.route = parseRoute();
   render();
+  if (!S.device) chooseDevice(true);   // 初めて開いたとき: 使う端末を選んでもらう
   // ホーム画面に追加して、オフラインでも開けるように
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 }
