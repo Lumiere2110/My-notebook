@@ -1210,7 +1210,7 @@ function setViewport(editing) {
 /* ===== エディター ===== */
 function openEditor(file) {
   ED = {
-    file, tool: 'select', sel: null, editId: null, lasso: null,
+    file, tool: device() === 'phone' ? 'text' : 'select', sel: null,   // スマホはテキスト入力から始める editId: null, lasso: null,
     undo: [], redo: [], snap: JSON.stringify(file.pages), saveT: null, commitT: null,
     pen: { color: INK[0][0], width: PEN_W[1][0] }, marker: { color: MARK[0][0], width: MARK_W[1][0] },
     eraser: { size: ERASER_W[1][0], mode: 'part' },
@@ -1238,7 +1238,7 @@ function openEditor(file) {
   ED.scroller = el('div', { class: 'pages-scroll' }, ED.pagesBox);
   ED.zoom = clamp(+pref('zoom', '1') || 1, ZOOMS[0], ZOOMS[ZOOMS.length - 1]);
   ED.zoomBtn = el('button', { class: 'zoom-label', type: 'button', title: '拡大率（クリックで選ぶ）', onclick: (e) => { e.stopPropagation(); zoomMenu(e.currentTarget); } });
-  ED.root = el('div', { class: 'ed tool-select' },
+  ED.root = el('div', { class: 'ed tool-' + ED.tool },
     el('div', { class: 'ed-top' },
       el('div', { class: 'ed-bar' },
         iconBtn('back', '戻る', () => go(ED.back)),
@@ -1668,7 +1668,7 @@ function renderSub() {
         p.strokes = keep; commit(); renderPage(p);
         toast(keep.length ? '書き込みを消しました（固定したものは残しています）' : '書き込みを消しました', '元に戻す', undo);
       } }));
-  } else if (t === 'text') {
+  } else if (t === 'text' && !sel) {
     s.append(el('span', { class: 'sub-label', text: 'テキストボックス' }),
       seg(TEXT_SIZES, ED.textSize, (v) => { ED.textSize = v; }), colorRow(INK, ED.textColor, (v) => { ED.textColor = v; }),
       seg([["h", "横書き"], ["v", "縦書き"]], ED.textVert ? "v" : "h", (v) => { ED.textVert = v === "v"; setPref("textVert", ED.textVert ? "1" : "0"); }),
@@ -1812,6 +1812,8 @@ function startEditing(page, it) {
 function zoomToRead(d, it) {
   const stage = d.closest('.stage');
   if (!stage) return;
+  // 指を離した直後にページが動くので、そのあとに来る「クリック」が別のボタン（ページを追加など）に当たらないようにする
+  swallowNextClick();
   const sc = ED.scroller, sr = sc.getBoundingClientRect();
   const scale = stage.getBoundingClientRect().width / (+stage.dataset.w || PAGE_W);
   const px = (it.size || 24) * scale;                       // いま画面に出ている文字の大きさ
@@ -1828,6 +1830,12 @@ function zoomToRead(d, it) {
   const r2 = d.getBoundingClientRect();
   if (r2.left < sr.left || r2.right > sr.right) sc.scrollLeft += r2.left - sr.left - 12;
   if (r2.top < sr.top || r2.top > sr.top + sr.height * 0.35) sc.scrollTop += r2.top - sr.top - 24;
+}
+function swallowNextClick() {
+  const stop = (e) => { e.preventDefault(); e.stopPropagation(); off(); };
+  const off = () => { clearTimeout(t); window.removeEventListener('click', stop, true); };
+  const t = setTimeout(off, 500);
+  window.addEventListener('click', stop, true);
 }
 function zoomBack() {
   if (!ED || ED.readZoom == null) return;
@@ -2052,14 +2060,19 @@ function onStageDown(e, stage) {
   if (e.target.closest('.tag') && !e.target.closest('.editing')) return;
   const d = e.target.closest('.item');
   if (d) { if (ED.lasso) clearLasso(); return onItemDown(e, stage, page, d, pt); }
+  const busy = !!(ED.editId || ED.sel || ED.lasso);
   if (document.activeElement?.closest?.('.stage')) document.activeElement.blur();
   if (tool === 'text' || tool === 'sticky' || tool === 'check') {
+    // スマホのテキスト入力: 置いたあともテキストのまま（続けて書ける）。入力中・選択中に空いた所を押したら、まず入力を終えるだけ
+    const stay = device() === 'phone' && tool === 'text';
+    if (stay && busy) { e.preventDefault(); if (ED.lasso) clearLasso(); select(null); renderSub(); return; }
+    const place = () => { createItem(page, tool, pt); if (!stay) setTool('select'); };
     if (e.pointerType === 'touch') {                            // 指: スクロールだったら置かない。指を離したときに置く
       e.preventDefault();                                       // （スクロールは止まらない。あとのマウスのイベントで入力欄が閉じないように）
-      track(e, () => {}, (ev) => { if (ev.type !== 'pointercancel' && ED?.tool === tool) { createItem(page, tool, pt); setTool('select'); } });
+      track(e, () => {}, (ev) => { if (ev.type !== 'pointercancel' && ED?.tool === tool) place(); });
       return;
     }
-    e.preventDefault(); createItem(page, tool, pt); setTool('select'); return;
+    e.preventDefault(); place(); return;
   }
   // 選択ツールで線や図形をクリック → その線を選ぶ（そのままドラッグで移動もできる）
   if (ED.lasso) clearLasso();
@@ -2184,7 +2197,7 @@ function onItemDown(e, stage, page, d, pt) {
   if (ED.editId && ED.editId !== it.id) document.activeElement?.blur();
   if (!handle && e.target.closest('.ctl')) { if (ED.sel?.itemId !== it.id) select(page.id, it.id); return; }   // チェック・プルダウンはそのまま使える
   const onGrip = !!e.target.closest('.grip');
-  if (e.pointerType === 'touch' && !handle && ED.sel?.itemId !== it.id && ED.tool === 'select') {
+  if (e.pointerType === 'touch' && !handle && ED.sel?.itemId !== it.id && (ED.tool === 'select' || ED.tool === 'text')) {
     // 指でまだ選んでいないアイテムにふれたとき: なぞったらページのスクロール、トンと押したら選ぶ（動かすのは選んでから）
     e.preventDefault();
     track(e, () => {}, (ev) => {

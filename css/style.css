@@ -1017,3 +1017,5 @@ body.editing .main { padding: 0; }
 /* 丸いボタンが文字の上にかぶらないよう、枠の外側に出す */
 .dev-phone .h-move { left: calc(-34px * var(--inv)); top: calc(-34px * var(--inv)); }
 .dev-phone .h-resize { right: calc(-34px * var(--inv)); bottom: calc(-34px * var(--inv)); }
+/* スマホのテキスト入力ツール: 選んでいないアイテムをなぞったらスクロール */
+.dev-phone .ed.tool-text .item:not(.selected) { touch-action: pan-x pan-y; }
