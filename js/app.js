@@ -1245,6 +1245,7 @@ function openEditor(file) {
         el('div', { class: 'ed-title' }, nameInput, where),
         el('div', { class: 'ed-hist' },
           el('div', { class: 'zoom' }, iconBtn('zoomOut', '縮小（Ctrl + -）', () => stepZoom(-1), 'sm'), ED.zoomBtn, iconBtn('zoomIn', '拡大（Ctrl + +）', () => stepZoom(1), 'sm')),
+          el('button', { class: 'btn primary ed-done', type: 'button', text: '完了', title: '入力を終える', onclick: () => document.activeElement?.blur() }),
           ED.undoBtn, ED.redoBtn,
           iconBtn('more', 'その他', (e) => { e.stopPropagation(); editorMenu(e.currentTarget); })),
         makeTools([...ED.toolBtns, imgBtn, funcBtn])),
@@ -1805,6 +1806,36 @@ function startEditing(page, it) {
   if (it.type !== "sticky" && !it.vert) autosizeText(ta);
   ta.focus({ preventScroll: true });
   const n = ta.value.length; ta.setSelectionRange(n, n);
+  if (device() === 'phone') zoomToRead(d, it);
+}
+/* スマホ: 文字を入力するときは、文字が読める大きさまでページを拡大する（入力が終わったら元の倍率に戻す） */
+function zoomToRead(d, it) {
+  const stage = d.closest('.stage');
+  if (!stage) return;
+  const sc = ED.scroller, sr = sc.getBoundingClientRect();
+  const scale = stage.getBoundingClientRect().width / (+stage.dataset.w || PAGE_W);
+  const px = (it.size || 24) * scale;                       // いま画面に出ている文字の大きさ
+  if (px < 15) {
+    const r = d.getBoundingClientRect();
+    let z = ED.zoom * 17 / px;
+    z = Math.min(z, ED.zoom * (sr.width - 24) / Math.max(1, r.width));   // 横にはみ出さない大きさまで
+    if (z > ED.zoom * 1.1) {
+      if (ED.readZoom == null) ED.readZoom = ED.zoom;
+      setZoom(z, r.left, r.top);
+    }
+  }
+  // 入力する場所が見えるように（キーボードに隠れないよう上のほうへ）
+  const r2 = d.getBoundingClientRect();
+  if (r2.left < sr.left || r2.right > sr.right) sc.scrollLeft += r2.left - sr.left - 12;
+  if (r2.top < sr.top || r2.top > sr.top + sr.height * 0.35) sc.scrollTop += r2.top - sr.top - 24;
+}
+function zoomBack() {
+  if (!ED || ED.readZoom == null) return;
+  const z = ED.readZoom; ED.readZoom = null;
+  setTimeout(() => {                                         // 続けて別のアイテムを入力するときは戻さない
+    if (!ED) return;
+    if (ED.editId) ED.readZoom ??= z; else setZoom(z);
+  }, 350);
 }
 function stopEditing(page, it, d, ta, rel) {
   if (!ED || ED.editId !== it.id) return;
@@ -1824,6 +1855,7 @@ function stopEditing(page, it, d, ta, rel) {
   if (page.conns?.length) drawConns(stageOf(page.id), page);
   commit();
   renderNav();
+  zoomBack();
 }
 
 /* --- ページ上の操作 --- */
