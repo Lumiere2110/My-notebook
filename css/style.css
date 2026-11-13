@@ -1115,3 +1115,17 @@ body.editing .main { padding: 0; }
 .note-tool:active { background: var(--hover); }
 .note-tool .ic { width: 26px; height: 26px; }
 .note-tool span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* ===== 1つのテキストボックスの中で文字の大きさを変える ===== */
+.item .txt .fs { line-height: 1.35; }
+.item .cedit { cursor: text; outline: none; white-space: pre-wrap; word-break: break-word; -webkit-user-select: text; user-select: text; }
+.item .cedit:empty::before { content: attr(data-ph); color: rgba(0,0,0,.35); pointer-events: none; }
+.item-sticky .cedit { overflow: auto; }
+.size-ctl { display: inline-flex; align-items: center; gap: 6px; }
+.sel-size-label { display: none; font-size: 12px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.ed-sub.has-textsel .sel-size-label { display: inline; }
+.step-btns { display: inline-flex; padding: 2px; background: var(--surface-2); border-radius: 8px; }
+.step-btn { min-width: 34px; padding: 3px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font-size: 12px; font-weight: 700; line-height: 1.4; }
+.step-btn.big { font-size: 15px; }
+.step-btn:hover { background: var(--hover); }
+:is(.dev-phone, .dev-tablet) .step-btn { min-width: 40px; padding: 6px 10px; }

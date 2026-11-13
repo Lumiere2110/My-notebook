@@ -945,16 +945,165 @@ function remapChecks(oldText, newText, checks) {
   if (a.length === b.length) for (let i = p; i < b.length - s; i++) out[i] = !!checks[i];   // 行の中を書き換えただけ
   return out;
 }
+/* ===== 1つのテキストボックスの中で、一部の文字だけ大きさを変える =====
+   文字は今までどおり it.text（ただの文字）に入れて、大きさだけ it.spans = [{ s, e, z }]（s〜e 文字目を z px）で持つ */
+const FONT_STEPS = [12, 14, 16, 18, 20, 24, 28, 34, 40, 48, 56, 64, 72, 96];
+function normSpans(spans, len) {
+  const out = [];
+  for (const sp of [...(spans || [])].sort((a, b) => a.s - b.s)) {
+    const s = Math.max(0, Math.min(len, sp.s)), e = Math.max(0, Math.min(len, sp.e));
+    if (e <= s || !sp.z) continue;
+    const last = out[out.length - 1];
+    if (last && last.e >= s && last.z === sp.z) last.e = Math.max(last.e, e); else out.push({ s, e, z: sp.z });
+  }
+  return out;
+}
+function setSpanSize(it, a, b, z) {
+  const out = [];
+  for (const sp of it.spans || []) {
+    if (sp.e <= a || sp.s >= b) { out.push(sp); continue; }
+    if (sp.s < a) out.push({ s: sp.s, e: a, z: sp.z });
+    if (sp.e > b) out.push({ s: b, e: sp.e, z: sp.z });
+  }
+  if (z && z !== it.size) out.push({ s: a, e: b, z });
+  it.spans = normSpans(out, String(it.text || '').length);
+  if (!it.spans.length) delete it.spans;
+}
+/* ただの文字の欄で書きかえたとき、大きさを変えた部分の位置をずらして合わせる（スマホのメモ画面） */
+function shiftSpans(it, oldText, newText) {
+  if (!it.spans?.length) return;
+  let p = 0;
+  while (p < oldText.length && p < newText.length && oldText[p] === newText[p]) p++;
+  let q = 0;
+  while (q < oldText.length - p && q < newText.length - p && oldText[oldText.length - 1 - q] === newText[newText.length - 1 - q]) q++;
+  const oldEnd = oldText.length - q, d = newText.length - oldText.length;
+  const map = (x) => (x <= p ? x : x >= oldEnd ? x + d : p);
+  it.spans = normSpans(it.spans.map((sp) => ({ s: map(sp.s), e: map(sp.e), z: sp.z })), newText.length);
+  if (!it.spans.length) delete it.spans;
+}
+function sizeAt(it, i) { return (it.spans || []).find((sp) => sp.s <= i && i < sp.e)?.z || it.size || 24; }
+/* text の from〜to 文字目を、大きさを変えた部分は <span> で包んで返す。mk は1つの区切りの文字から中身を作る */
+function sizedPieces(it, from, to, mk) {
+  const cuts = new Set([from, to]);
+  for (const sp of it.spans || []) { if (sp.s > from && sp.s < to) cuts.add(sp.s); if (sp.e > from && sp.e < to) cuts.add(sp.e); }
+  const xs = [...cuts].sort((a, b) => a - b), text = String(it.text || ''), out = [];
+  for (let k = 0; k < xs.length - 1; k++) {
+    const x = xs[k], y = xs[k + 1];
+    if (y <= x) continue;
+    const z = (it.spans || []).find((sp) => sp.s <= x && x < sp.e)?.z;
+    const inner = mk(text.slice(x, y));
+    out.push(z ? el('span', { class: 'fs', dataset: { z }, style: `font-size:${z}px` }, inner) : inner);
+  }
+  return out;
+}
+const sizedRich = (it, from, to) => sizedPieces(it, from, to, (t) => richText(t, it.urls !== false));
+
+/* --- 入力中の欄（いろいろな大きさの文字をそのまま見せるため、textarea ではなく文字を直接書ける欄にする） --- */
+const CE_TYPES = new Set(['text', 'sticky']);
+function fillCedit(ce, it) {
+  ce.replaceChildren(...sizedPieces(it, 0, String(it.text || '').length, (t) => document.createTextNode(t)));
+  if (String(it.text || '').endsWith('\n')) ce.append(el('br', { dataset: { tail: '1' } }));   // 最後の空の行を見せる
+}
+/* 欄の中身から、文字と大きさを読み取る */
+function readCedit(root, base) {
+  let text = '';
+  const spans = [];
+  const walk = (n, z) => {
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) {
+        const t = c.data.replace(/\u200b/g, '');
+        if (t) { if (z && z !== base) spans.push({ s: text.length, e: text.length + t.length, z }); text += t; }
+      } else if (c.nodeName === 'BR') {
+        if (!(c.dataset?.tail && c === root.lastChild)) text += '\n';
+      } else if (c.nodeType === 1) {
+        if (/^(DIV|P)$/.test(c.nodeName) && text && !text.endsWith('\n')) text += '\n';
+        walk(c, c.dataset?.z ? +c.dataset.z : c.style?.fontSize ? parseFloat(c.style.fontSize) : z);
+      }
+    }
+  };
+  walk(root, null);
+  return { text, spans: normSpans(spans, text.length) };
+}
+/* 欄の中の位置（ノードと位置）→ 何文字目か */
+function ceOffset(ce, node, off) {
+  const r = document.createRange();
+  r.selectNodeContents(ce);
+  try { r.setEnd(node, off); } catch { return 0; }
+  const box = document.createElement('div');
+  box.append(r.cloneContents());
+  return readCedit(box, 0).text.length;
+}
+/* 何文字目か → 欄の中の位置 */
+function ceLocate(ce, i) {
+  let left = i;
+  const find = (n) => {
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) { if (left <= c.data.length) return [c, left]; left -= c.data.length; }
+      else if (c.nodeName === 'BR') { if (left === 0) return [n, [...n.childNodes].indexOf(c)]; left -= 1; }
+      else if (c.nodeType === 1) { const r = find(c); if (r) return r; }
+    }
+    return null;
+  };
+  return find(ce) || [ce, ce.childNodes.length];
+}
+function ceSelect(ce, a, b = a) {
+  const [n1, o1] = ceLocate(ce, a), [n2, o2] = ceLocate(ce, b);
+  const r = document.createRange();
+  r.setStart(n1, o1); r.setEnd(n2, o2);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+}
+/* 入力中の欄で選んでいる文字の範囲（何文字目〜何文字目）を覚えておく。ボタンを押してフォーカスが外れても使えるように */
+document.addEventListener('selectionchange', () => {
+  if (!ED?.editId) return;
+  const sel = getSelection();
+  const ce = sel.rangeCount && sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement)?.closest?.('.cedit');
+  if (!ce) return;
+  const r = sel.getRangeAt(0);
+  const a = ceOffset(ce, r.startContainer, r.startOffset), b = ceOffset(ce, r.endContainer, r.endOffset);
+  ED.lastSel = { id: ED.editId, a: Math.min(a, b), b: Math.max(a, b) };
+  ED.sub.classList.toggle('has-textsel', a !== b);
+  // 大きさのボタンの印を、選んでいる文字（選んでいなければ全体）の大きさに合わせる
+  const it = selected()?.it;
+  if (it?.id === ED.editId) {
+    const z = a !== b ? sizeAt(it, Math.min(a, b)) : it.size;
+    ED.sub.querySelectorAll('.size-ctl .seg button').forEach((x) => { const on = +x.dataset.v === z; x.classList.toggle('sel', on); x.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+  }
+});
+/* 大きさのボタン: 文字を選んでいたらその文字だけ、選んでいなければテキストボックス全体 */
+function textSel(it) { const s = ED?.lastSel; return s && s.id === it.id && s.a < s.b ? s : null; }
+function applySize(page, it, z) {
+  const s = textSel(it);
+  if (!s) {                                                     // 全体の大きさ（大きさを変えた部分はそのまま）
+    it.size = z; if (it.type === 'text') ED.textSize = z;
+    if (it.spans) { it.spans = it.spans.filter((sp) => sp.z !== z); if (!it.spans.length) delete it.spans; }
+    commit(); renderPage(page); return;
+  }
+  setSpanSize(it, s.a, s.b, z);
+  commit(); renderPage(page);
+  const ce = itemDiv(it.id)?.querySelector('.cedit');
+  if (ce) { ce.focus({ preventScroll: true }); ceSelect(ce, s.a, s.b); ED.lastSel = { ...s }; ED.sub.classList.add('has-textsel'); }
+}
+function stepSize(page, it, d) {
+  const s = textSel(it);
+  const cur = s ? sizeAt(it, s.a) : it.size || 24;
+  const i = FONT_STEPS.findIndex((z) => z >= cur);
+  const next = d > 0 ? FONT_STEPS.find((z) => z > cur) ?? FONT_STEPS[FONT_STEPS.length - 1] : [...FONT_STEPS].reverse().find((z) => z < cur) ?? FONT_STEPS[0];
+  if (i < 0 && d > 0) return;
+  if (s) applySize(page, it, next);
+  else applySize(page, it, next), renderSub();
+}
+
 function textView(it) {
   if (it.type === 'sticky' && it.list && it.text) {               // 付箋のチェックリスト: 1行ごとにチェックボックス
     return el('div', { class: 'txt list' }, String(it.text).split('\n').map((ln, i) => (ln.trim()
       ? el('div', { class: 'li' + (it.checks?.[i] ? ' done' : '') },
         el('input', { type: 'checkbox', class: 'ctl', checked: !!it.checks?.[i], dataset: { line: i }, 'aria-label': `${ln} をチェック` }),
-        el('span', { class: 'li-t' }, richText(ln, it.urls !== false)))
+        el('span', { class: 'li-t' }, sizedRich(it, lineStart(it.text, i), lineStart(it.text, i) + ln.length)))
       : el('div', { class: 'li empty' }, ' '))));
   }
-  return el('div', { class: 'txt' }, richText(it.text || '', it.urls !== false), it.text ? null : el('span', { class: 'ph', text: PLACEHOLDER[it.type] || '' }));
+  return el('div', { class: 'txt' }, sizedRich(it, 0, String(it.text || '').length), it.text ? null : el('span', { class: 'ph', text: PLACEHOLDER[it.type] || '' }));
 }
+function lineStart(text, i) { let p = 0; for (let k = 0; k < i; k++) p = String(text).indexOf('\n', p) + 1; return p; }
 function tagChips(it) {
   return it.tags?.length ? el('div', { class: 'item-tags' }, it.tags.map((t) => el('span', { class: 'tag', dataset: { tag: t }, title: `#${t} で探す` }, '#' + t))) : null;
 }
@@ -1264,6 +1413,7 @@ function openNote(file) {
   const setText = (v) => {
     let b = bodyItem(file);
     if (!b) { if (!v) return; b = makeBody(file); }
+    shiftSpans(b.it, b.it.text || '', v);
     b.it.text = v; save();
   };
   body.addEventListener('input', () => { setText(body.value); autoGrow(body); });
@@ -1822,7 +1972,7 @@ function paletteMenu(anchor, list, cur, onPick) {
 }
 function seg(list, cur, onPick, after = renderSub) {
   return el('div', { class: 'seg' }, list.map(([v, label]) => el('button', {
-    class: v === cur ? 'sel' : '', type: 'button', text: label, 'aria-pressed': v === cur ? 'true' : 'false',
+    class: v === cur ? 'sel' : '', type: 'button', text: label, 'aria-pressed': v === cur ? 'true' : 'false', dataset: { v },
     onclick: () => { onPick(v); after(); },
   })));
 }
@@ -1904,9 +2054,17 @@ function renderItemSub(s, page, it) {
     return;
   }
   const restyle = (fn) => (v) => { fn(v); commit(); renderPage(page); };
-  if (it.type === 'text' || it.type === 'check') s.append(seg(TEXT_SIZES, it.size, restyle((v) => { it.size = v; ED.textSize = v; })), colorRow(INK, it.color, restyle((v) => { it.color = v; ED.textColor = v; })));
+  // 文字の大きさ: 文字を選んでいたらその文字だけ（「選んだ文字」と出る）、選んでいなければ全体
+  const sizeCtl = () => el('span', { class: 'size-ctl' },
+    el('span', { class: 'sel-size-label', text: '選んだ文字:' }),
+    seg(it.type === 'sticky' ? TEXT_SIZES.slice(0, 3) : TEXT_SIZES, textSel(it) ? sizeAt(it, textSel(it).a) : it.size, (v) => applySize(page, it, v)),
+    el('span', { class: 'step-btns' },
+      el('button', { class: 'step-btn', type: 'button', title: '文字を小さく（文字を選んでいたらその文字だけ）', 'aria-label': '文字を小さく', onclick: () => stepSize(page, it, -1) }, 'A−'),
+      el('button', { class: 'step-btn big', type: 'button', title: '文字を大きく（文字を選んでいたらその文字だけ）', 'aria-label': '文字を大きく', onclick: () => stepSize(page, it, 1) }, 'A＋')));
+  if (it.type === 'check') s.append(seg(TEXT_SIZES, it.size, restyle((v) => { it.size = v; ED.textSize = v; })), colorRow(INK, it.color, restyle((v) => { it.color = v; ED.textColor = v; })));
+  if (it.type === 'text') s.append(sizeCtl(), colorRow(INK, it.color, restyle((v) => { it.color = v; ED.textColor = v; })));
   if (it.type === 'sticky') s.append(colorRow(STICKY, stickyBg(it.color), restyle((v) => { it.color = v; ED.stickyColor = v; })),
-    seg(TEXT_SIZES.slice(0, 3), it.size, restyle((v) => { it.size = v; })),
+    sizeCtl(),
     toggleBtn('checkbox', 'チェックリスト', !!it.list, () => { it.list = !it.list; if (!it.list) delete it.checks; commit(); renderPage(page); renderSub(); }, '1行ごとにチェックボックスを付ける'));
   if (it.type === "text" || it.type === "sticky") s.append(seg([["h", "横書き"], ["v", "縦書き"]], it.vert ? "v" : "h", (v) => setVert(page, it, v === "v")));
   if (TEXTY.has(it.type)) {
@@ -1996,13 +2154,23 @@ function startEditing(page, it) {
   const d = itemDiv(it.id);
   const view = d?.querySelector('.txt');
   if (!view) return;
-  const ta = el('textarea', { value: it.text || '', rows: 1, spellcheck: 'false', placeholder: PLACEHOLDER[it.type], 'aria-label': ITEM_LABEL[it.type] });
-  view.replaceWith(ta);
   ED.editId = it.id;
   d.classList.add('editing');
-  if (it.type !== "sticky" && !it.vert) autosizeText(ta);
-  ta.focus({ preventScroll: true });
-  const n = ta.value.length; ta.setSelectionRange(n, n);
+  if (CE_TYPES.has(it.type)) {                                   // テキストボックス・付箋: 大きさの違う文字をそのまま見せる欄
+    const ce = el('div', { class: 'txt cedit', spellcheck: 'false', role: 'textbox', 'aria-multiline': 'true', 'aria-label': ITEM_LABEL[it.type], dataset: { ph: PLACEHOLDER[it.type] || '' } });
+    ce.contentEditable = 'plaintext-only';
+    if (ce.contentEditable !== 'plaintext-only') { ce.contentEditable = 'true'; ce.dataset.rich = '1'; }
+    fillCedit(ce, it);
+    view.replaceWith(ce);
+    ce.focus({ preventScroll: true });
+    ceSelect(ce, String(it.text || '').length);
+  } else {
+    const ta = el('textarea', { value: it.text || '', rows: 1, spellcheck: 'false', placeholder: PLACEHOLDER[it.type], 'aria-label': ITEM_LABEL[it.type] });
+    view.replaceWith(ta);
+    if (it.type !== "sticky" && !it.vert) autosizeText(ta);
+    ta.focus({ preventScroll: true });
+    const n = ta.value.length; ta.setSelectionRange(n, n);
+  }
   if (device() === 'phone') zoomToRead(d, it);
 }
 /* スマホ: 文字を入力するときは、文字が読める大きさまでページを拡大する（入力が終わったら元の倍率に戻す） */
@@ -2045,6 +2213,7 @@ function zoomBack() {
 function stopEditing(page, it, d, ta, rel) {
   if (!ED || ED.editId !== it.id) return;
   ED.editId = null;
+  setTimeout(() => { if (ED && ED.editId !== it.id && ED.lastSel?.id === it.id) { ED.lastSel = null; ED.sub.classList.remove('has-textsel'); } }, 400);
   d.classList.remove('editing');
   // 空のテキストボックスは片付ける。ただし上のバーやメニューを操作しただけ（文字の大きさ・色を変えるなど）のときは残す
   const toBar = !!rel?.closest?.('.ed-top, .popover, .modal-wrap');
@@ -2178,13 +2347,16 @@ function bindEditor(root) {
   });
   root.addEventListener('input', (e) => {
     const ta = e.target;
-    if (ta.tagName !== 'TEXTAREA') return;
+    const ce = ta.classList?.contains('cedit');
+    if (ta.tagName !== 'TEXTAREA' && !ce) return;
     const d = ta.closest('.item'), stage = ta.closest('.stage');
     const it = pageById(stage.dataset.page)?.items.find((x) => x.id === d.dataset.id);
     if (!it) return;
-    if (it.list && it.checks?.length) it.checks = remapChecks(it.text || '', ta.value, it.checks);
-    it.text = ta.value;
-    if (it.type !== "sticky" && !it.vert) autosizeText(ta);
+    const r = ce ? readCedit(ta, it.size) : { text: ta.value };
+    if (it.list && it.checks?.length) it.checks = remapChecks(it.text || '', r.text, it.checks);
+    it.text = r.text;
+    if (ce) { if (r.spans.length) it.spans = r.spans; else delete it.spans; }
+    if (!ce && it.type !== "sticky" && !it.vert) autosizeText(ta);
     const page = pageById(stage.dataset.page);
     if (page.conns?.length) drawConns(stage, page);
     scheduleSave(); commitSoon(); updateHist();
@@ -2227,7 +2399,7 @@ function bindEditor(root) {
   });
   root.addEventListener('focusout', (e) => {
     const ta = e.target;
-    if (ta.tagName !== 'TEXTAREA') return;
+    if (ta.tagName !== 'TEXTAREA' && !ta.classList?.contains('cedit')) return;
     const d = ta.closest('.item'), stage = ta.closest('.stage');
     const page = stage && pageById(stage.dataset.page);
     const it = page?.items.find((x) => x.id === d.dataset.id);
@@ -2390,7 +2562,7 @@ function onItemDown(e, stage, page, d, pt) {
   if (ED.connectFrom) { const cf = ED.connectFrom; ED.connectFrom = null; if (cf.pageId === page.id && cf.itemId !== it.id) { e.preventDefault(); addConn(page, cf.itemId, it.id); return; } }
   if (e.target.closest(".h-del")) { e.preventDefault(); if (ED.editId === it.id) ED.editId = null; select(page.id, it.id); deleteSelected(); return; }
   const handle = e.target.closest('.h-resize') ? 'resize' : e.target.closest('.h-move') ? 'move' : null;
-  if (!handle && ED.editId === it.id && e.target.tagName === 'TEXTAREA') return;   // 入力中の文字の操作はそのまま
+  if (!handle && ED.editId === it.id && e.target.closest('textarea, .cedit')) return;   // 入力中の文字の操作はそのまま
   if (ED.editId && ED.editId !== it.id) document.activeElement?.blur();
   if (!handle && e.target.closest('.ctl')) { if (ED.sel?.itemId !== it.id) select(page.id, it.id); return; }   // チェック・プルダウンはそのまま使える
   const onGrip = !!e.target.closest('.grip');
@@ -2438,7 +2610,7 @@ function onItemDown(e, stage, page, d, pt) {
     }
   }, () => {
     d.classList.remove('dragging');
-    if (moved) { placeItem(d, it); commit(); if (ED?.editId === it.id) d.querySelector('textarea')?.focus({ preventScroll: true }); }
+    if (moved) { placeItem(d, it); commit(); if (ED?.editId === it.id) d.querySelector('textarea, .cedit')?.focus({ preventScroll: true }); }
     else if (!handle) {
       if (it.type === 'link' && !onGrip) openLink(it);
       else if (TEXTY.has(it.type) && ED?.editId !== it.id) startEditing(page, it);
