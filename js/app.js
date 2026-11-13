@@ -948,27 +948,35 @@ function remapChecks(oldText, newText, checks) {
 /* ===== 1つのテキストボックスの中で、一部の文字だけ大きさを変える =====
    文字は今までどおり it.text（ただの文字）に入れて、大きさだけ it.spans = [{ s, e, z }]（s〜e 文字目を z px）で持つ */
 const FONT_STEPS = [12, 14, 16, 18, 20, 24, 28, 34, 40, 48, 56, 64, 72, 96];
+const sameAttr = (a, b) => (a.z || 0) === (b.z || 0) && (a.c || '') === (b.c || '');
 function normSpans(spans, len) {
   const out = [];
   for (const sp of [...(spans || [])].sort((a, b) => a.s - b.s)) {
-    const s = Math.max(0, Math.min(len, sp.s)), e = Math.max(0, Math.min(len, sp.e));
-    if (e <= s || !sp.z) continue;
     const last = out[out.length - 1];
-    if (last && last.e >= s && last.z === sp.z) last.e = Math.max(last.e, e); else out.push({ s, e, z: sp.z });
+    const s = Math.max(0, Math.min(len, sp.s), last ? last.e : 0), e = Math.max(0, Math.min(len, sp.e));
+    if (e <= s || !(sp.z || sp.c)) continue;
+    const v = { s, e }; if (sp.z) v.z = sp.z; if (sp.c) v.c = sp.c;
+    if (last && last.e === s && sameAttr(last, v)) last.e = e; else out.push(v);
   }
   return out;
 }
-function setSpanSize(it, a, b, z) {
-  const out = [];
-  for (const sp of it.spans || []) {
-    if (sp.e <= a || sp.s >= b) { out.push(sp); continue; }
-    if (sp.s < a) out.push({ s: sp.s, e: a, z: sp.z });
-    if (sp.e > b) out.push({ s: b, e: sp.e, z: sp.z });
+/* a〜b 文字目の大きさ（key = 'z'）や色（key = 'c'）を val にする。val が空かテキストボックス全体と同じなら、その指定を外す */
+function setSpanAttr(it, a, b, key, val) {
+  const len = String(it.text || '').length, spans = it.spans || [];
+  const cuts = new Set([0, len, a, b]);
+  for (const sp of spans) { cuts.add(sp.s); cuts.add(sp.e); }
+  const xs = [...cuts].filter((x) => x >= 0 && x <= len).sort((p, q) => p - q), out = [];
+  const base = key === 'z' ? it.size : it.color;
+  for (let k = 0; k < xs.length - 1; k++) {
+    const x = xs[k], y = xs[k + 1];
+    const at = { ...(spans.find((sp) => sp.s <= x && x < sp.e) || {}) };
+    if (x >= a && y <= b) { if (val && val !== base) at[key] = val; else delete at[key]; }
+    if (at.z || at.c) out.push({ s: x, e: y, z: at.z, c: at.c });
   }
-  if (z && z !== it.size) out.push({ s: a, e: b, z });
-  it.spans = normSpans(out, String(it.text || '').length);
+  it.spans = normSpans(out, len);
   if (!it.spans.length) delete it.spans;
 }
+const setSpanSize = (it, a, b, z) => setSpanAttr(it, a, b, 'z', z);
 /* ただの文字の欄で書きかえたとき、大きさを変えた部分の位置をずらして合わせる（スマホのメモ画面） */
 function shiftSpans(it, oldText, newText) {
   if (!it.spans?.length) return;
@@ -978,10 +986,11 @@ function shiftSpans(it, oldText, newText) {
   while (q < oldText.length - p && q < newText.length - p && oldText[oldText.length - 1 - q] === newText[newText.length - 1 - q]) q++;
   const oldEnd = oldText.length - q, d = newText.length - oldText.length;
   const map = (x) => (x <= p ? x : x >= oldEnd ? x + d : p);
-  it.spans = normSpans(it.spans.map((sp) => ({ s: map(sp.s), e: map(sp.e), z: sp.z })), newText.length);
+  it.spans = normSpans(it.spans.map((sp) => ({ ...sp, s: map(sp.s), e: map(sp.e) })), newText.length);
   if (!it.spans.length) delete it.spans;
 }
 function sizeAt(it, i) { return (it.spans || []).find((sp) => sp.s <= i && i < sp.e)?.z || it.size || 24; }
+function colorAt(it, i) { return (it.spans || []).find((sp) => sp.s <= i && i < sp.e)?.c || (it.type === 'sticky' ? '' : it.color); }
 /* text の from〜to 文字目を、大きさを変えた部分は <span> で包んで返す。mk は1つの区切りの文字から中身を作る */
 function sizedPieces(it, from, to, mk) {
   const cuts = new Set([from, to]);
@@ -990,9 +999,13 @@ function sizedPieces(it, from, to, mk) {
   for (let k = 0; k < xs.length - 1; k++) {
     const x = xs[k], y = xs[k + 1];
     if (y <= x) continue;
-    const z = (it.spans || []).find((sp) => sp.s <= x && x < sp.e)?.z;
+    const sp = (it.spans || []).find((q) => q.s <= x && x < q.e);
     const inner = mk(text.slice(x, y));
-    out.push(z ? el('span', { class: 'fs', dataset: { z }, style: `font-size:${z}px` }, inner) : inner);
+    if (!sp) { out.push(...[inner].flat()); continue; }       // （配列のまま入れると「,」でつながった文字になる）
+    const ds = {}; let style = '';
+    if (sp.z) { ds.z = sp.z; style += `font-size:${sp.z}px;`; }
+    if (sp.c) { ds.c = sp.c; style += `color:${sp.c};`; }
+    out.push(el('span', { class: 'fs' + (sp.c ? ' fc' : ''), dataset: ds, style }, inner));
   }
   return out;
 }
@@ -1005,23 +1018,30 @@ function fillCedit(ce, it) {
   if (String(it.text || '').endsWith('\n')) ce.append(el('br', { dataset: { tail: '1' } }));   // 最後の空の行を見せる
 }
 /* 欄の中身から、文字と大きさを読み取る */
-function readCedit(root, base) {
+function readCedit(root, base, baseColor) {
   let text = '';
   const spans = [];
-  const walk = (n, z) => {
+  const walk = (n, z, col) => {
     for (const c of n.childNodes) {
       if (c.nodeType === 3) {
         const t = c.data.replace(/\u200b/g, '');
-        if (t) { if (z && z !== base) spans.push({ s: text.length, e: text.length + t.length, z }); text += t; }
+        if (t) {
+          const sp = { s: text.length, e: text.length + t.length };
+          if (z && z !== base) sp.z = z;
+          if (col && col !== baseColor) sp.c = col;
+          if (sp.z || sp.c) spans.push(sp);
+          text += t;
+        }
       } else if (c.nodeName === 'BR') {
         if (!(c.dataset?.tail && c === root.lastChild)) text += '\n';
       } else if (c.nodeType === 1) {
         if (/^(DIV|P)$/.test(c.nodeName) && text && !text.endsWith('\n')) text += '\n';
-        walk(c, c.dataset?.z ? +c.dataset.z : c.style?.fontSize ? parseFloat(c.style.fontSize) : z);
+        walk(c, c.dataset?.z ? +c.dataset.z : c.style?.fontSize ? parseFloat(c.style.fontSize) : z,
+          c.dataset?.c || c.style?.color || col);
       }
     }
   };
-  walk(root, null);
+  walk(root, null, null);
   return { text, spans: normSpans(spans, text.length) };
 }
 /* 欄の中の位置（ノードと位置）→ 何文字目か */
@@ -1067,6 +1087,8 @@ document.addEventListener('selectionchange', () => {
   if (it?.id === ED.editId) {
     const z = a !== b ? sizeAt(it, Math.min(a, b)) : it.size;
     ED.sub.querySelectorAll('.size-ctl .seg button').forEach((x) => { const on = +x.dataset.v === z; x.classList.toggle('sel', on); x.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+    const c = (a !== b ? colorAt(it, Math.min(a, b)) : it.type === 'sticky' ? '' : it.color) || '';
+    ED.sub.querySelectorAll('.text-color .swatch-btn').forEach((x) => x.classList.toggle('sel', !!c && x.dataset.v?.toLowerCase() === c.toLowerCase()));
   }
 });
 /* 大きさのボタン: 文字を選んでいたらその文字だけ、選んでいなければテキストボックス全体 */
@@ -1080,6 +1102,22 @@ function applySize(page, it, z) {
   }
   setSpanSize(it, s.a, s.b, z);
   commit(); renderPage(page);
+  const ce = itemDiv(it.id)?.querySelector('.cedit');
+  if (ce) { ce.focus({ preventScroll: true }); ceSelect(ce, s.a, s.b); ED.lastSel = { ...s }; ED.sub.classList.add('has-textsel'); }
+}
+/* 文字の色: 文字を選んでいたらその文字だけ、選んでいなければ全体（付箋は全部の文字） */
+function applyColor(page, it, c) {
+  const s = textSel(it);
+  const len = String(it.text || '').length;
+  if (!s && it.type !== 'sticky') {
+    it.color = c; ED.textColor = c;
+    if (it.spans) { it.spans = normSpans(it.spans.map((sp) => (sp.c === c ? { ...sp, c: undefined } : sp)), len); if (!it.spans.length) delete it.spans; }
+    commit(); renderPage(page); return;
+  }
+  const a = s ? s.a : 0, b = s ? s.b : len;
+  setSpanAttr(it, a, b, 'c', c);
+  commit(); renderPage(page);
+  if (!s) return;
   const ce = itemDiv(it.id)?.querySelector('.cedit');
   if (ce) { ce.focus({ preventScroll: true }); ceSelect(ce, s.a, s.b); ED.lastSel = { ...s }; ED.sub.classList.add('has-textsel'); }
 }
@@ -1950,7 +1988,7 @@ function colorRow(list, cur, onPick, quick = 6) {
   if (cur && !shown.some(([v]) => v.toLowerCase() === cur.toLowerCase())) shown.push([cur, '選んでいる色']);
   return el('div', { class: 'swatches' },
     shown.map(([v, label]) => el('button', {
-      class: 'swatch-btn' + (v.toLowerCase() === (cur || '').toLowerCase() ? ' sel' : ''), type: 'button', title: label, 'aria-label': label, style: `background:${v}`,
+      class: 'swatch-btn' + (v.toLowerCase() === (cur || '').toLowerCase() ? ' sel' : ''), type: 'button', title: label, 'aria-label': label, style: `background:${v}`, dataset: { v },
       onclick: () => { onPick(v); renderSub(); },
     })),
     el('button', { class: 'more-colors', type: 'button', title: 'ほかの色', 'aria-label': 'ほかの色', onclick: (e) => { e.stopPropagation(); paletteMenu(e.currentTarget, list, cur, onPick); } }, icon('palette')));
@@ -2062,13 +2100,17 @@ function renderItemSub(s, page, it) {
       el('button', { class: 'step-btn', type: 'button', title: '文字を小さく（文字を選んでいたらその文字だけ）', 'aria-label': '文字を小さく', onclick: () => stepSize(page, it, -1) }, 'A−'),
       el('button', { class: 'step-btn big', type: 'button', title: '文字を大きく（文字を選んでいたらその文字だけ）', 'aria-label': '文字を大きく', onclick: () => stepSize(page, it, 1) }, 'A＋')));
   if (it.type === 'check') s.append(seg(TEXT_SIZES, it.size, restyle((v) => { it.size = v; ED.textSize = v; })), colorRow(INK, it.color, restyle((v) => { it.color = v; ED.textColor = v; })));
-  if (it.type === 'text') s.append(sizeCtl(), colorRow(INK, it.color, restyle((v) => { it.color = v; ED.textColor = v; })));
+  // 文字の色: 文字を選んでいたらその文字だけ
+  const colorCtl = () => el('span', { class: 'text-color', title: '文字の色（文字を選んでいたらその文字だけ）' },
+    it.type === 'sticky' ? el('span', { class: 'mini-label', text: '文字の色' }) : null,
+    colorRow(INK, textSel(it) ? colorAt(it, textSel(it).a) : it.type === 'sticky' ? '' : it.color, (v) => applyColor(page, it, v)));
+  if (it.type === 'text') s.append(sizeCtl(), colorCtl());
   if (it.type === 'sticky') s.append(colorRow(STICKY, stickyBg(it.color), restyle((v) => { it.color = v; ED.stickyColor = v; })),
-    sizeCtl(),
+    sizeCtl(), colorCtl(),
     toggleBtn('checkbox', 'チェックリスト', !!it.list, () => { it.list = !it.list; if (!it.list) delete it.checks; commit(); renderPage(page); renderSub(); }, '1行ごとにチェックボックスを付ける'));
   if (it.type === "text" || it.type === "sticky") s.append(seg([["h", "横書き"], ["v", "縦書き"]], it.vert ? "v" : "h", (v) => setVert(page, it, v === "v")));
   if (TEXTY.has(it.type)) {
-    s.append(toggleBtn('link', 'URL判定', it.urls !== false, () => { it.urls = it.urls === false; commit(); renderPage(page); renderSub(); }, '文字の中の URL をクリックできるリンクにする'),
+    s.append(toggleBtn('link', 'URL判定', it.urls !== false, () => { it.urls = it.urls === false; commit(); renderPage(page); renderSub(); }, '文字の中の URL をリンクにする（ダブルクリックで開く）'),
       el('button', { class: 'btn small', type: 'button', onclick: () => editItemTags(page, it) }, icon('tag'), it.tags?.length ? 'タグ: ' + it.tags.map((x) => '#' + x).join(' ') : 'タグを付ける'));
   }
   if (it.type === 'select') {
@@ -2122,6 +2164,7 @@ async function editItemTags(page, it) {
 
 /* --- 選択 --- */
 function select(pageId, itemId) {
+  if (ED?.lastSel && ED.lastSel.id !== itemId) { ED.lastSel = null; ED.sub?.classList.remove('has-textsel'); }
   if (!ED) return;
   if (ED.csel) clearConnSel();
   ED.connectFrom = null;
@@ -2213,7 +2256,8 @@ function zoomBack() {
 function stopEditing(page, it, d, ta, rel) {
   if (!ED || ED.editId !== it.id) return;
   ED.editId = null;
-  setTimeout(() => { if (ED && ED.editId !== it.id && ED.lastSel?.id === it.id) { ED.lastSel = null; ED.sub.classList.remove('has-textsel'); } }, 400);
+  // 上の欄やパレット（色を選ぶ）に移ったときは、選んでいた文字を覚えたまま。ほかへ移ったら忘れる
+  if (!rel?.closest?.('.ed-top, .popover')) setTimeout(() => { if (ED && ED.editId !== it.id && ED.lastSel?.id === it.id) { ED.lastSel = null; ED.sub.classList.remove('has-textsel'); } }, 400);
   d.classList.remove('editing');
   // 空のテキストボックスは片付ける。ただし上のバーやメニューを操作しただけ（文字の大きさ・色を変えるなど）のときは残す
   const toBar = !!rel?.closest?.('.ed-top, .popover, .modal-wrap');
@@ -2330,6 +2374,30 @@ function bindTouch(root) {
   sc.addEventListener('touchend', touchEnd);
   sc.addEventListener('touchcancel', touchEnd);
 }
+/* ダブルクリックした場所の文字が URL（URL判定がオンのとき）なら、そのアドレスを返す */
+function urlAtEvent(e) {
+  const a = e.target.closest?.('.stage a.url');
+  if (a) return a.href;
+  const d = e.target.closest?.('.stage .item'), stage = d?.closest('.stage');
+  if (!d || !stage) return null;
+  const it = pageById(stage.dataset.page)?.items.find((x) => x.id === d.dataset.id);
+  if (!it || it.urls === false || !TEXTY.has(it.type)) return null;
+  let i = null;
+  const ce = e.target.closest('.cedit'), ta = e.target.closest('textarea');
+  if (ce) {
+    const pos = document.caretPositionFromPoint?.(e.clientX, e.clientY);
+    const r = pos ? null : document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    const node = pos ? pos.offsetNode : r?.startContainer, off = pos ? pos.offset : r?.startOffset;
+    if (node && ce.contains(node)) i = ceOffset(ce, node, off);
+  } else if (ta) i = ta.selectionStart;
+  if (i == null) return null;
+  for (const m of String(it.text || '').matchAll(RICH)) {
+    if (!m[1]) continue;
+    const url = m[1].replace(/[)\].,!?！？]+$/, '');
+    if (i >= m.index && i <= m.index + url.length) return /^https?:/i.test(url) ? url : 'https://' + url;
+  }
+  return null;
+}
 function bindEditor(root) {
   root.addEventListener('pointerdown', (e) => {
     const stage = e.target.closest('.stage');
@@ -2337,10 +2405,13 @@ function bindEditor(root) {
     onStageDown(e, stage);
   });
   root.addEventListener('click', (e) => {
+    if (e.target.closest('.stage a.url')) e.preventDefault();      // URL は1回押しただけでは開かない（ダブルクリックで開く）
     const tag = e.target.closest('.stage .tag');
     if (tag && ED.tool === 'select' && !ED.editId) { e.preventDefault(); searchFor('#' + tag.dataset.tag); }
   });
   root.addEventListener('dblclick', (e) => {
+    const url = urlAtEvent(e);
+    if (url) { e.preventDefault(); window.open(url, '_blank', 'noopener'); return; }
     const stage = e.target.closest('.stage');
     if (!stage || ED.tool !== 'select' || e.target.closest('.item')) return;
     createItem(pageById(stage.dataset.page), 'text', toLocal(e, stage));
@@ -2352,7 +2423,7 @@ function bindEditor(root) {
     const d = ta.closest('.item'), stage = ta.closest('.stage');
     const it = pageById(stage.dataset.page)?.items.find((x) => x.id === d.dataset.id);
     if (!it) return;
-    const r = ce ? readCedit(ta, it.size) : { text: ta.value };
+    const r = ce ? readCedit(ta, it.size, it.type === 'sticky' ? '' : it.color) : { text: ta.value };
     if (it.list && it.checks?.length) it.checks = remapChecks(it.text || '', r.text, it.checks);
     it.text = r.text;
     if (ce) { if (r.spans.length) it.spans = r.spans; else delete it.spans; }
@@ -2425,7 +2496,6 @@ function onStageDown(e, stage) {
   const lb = e.target.closest('.lasso-box');
   if (lb && ED.lasso?.pageId === page.id && (tool === 'lasso' || tool === 'select')) { e.preventDefault(); return lassoTransform(e, stage, page, pt, lb); }
   if (tool === 'lasso') { e.preventDefault(); return startLasso(e, stage, page, pt); }
-  if (e.target.closest('a.url')) return;                      // リンクはそのまま開く
   if (e.target.closest('.tag') && !e.target.closest('.editing')) return;
   const d = e.target.closest('.item');
   if (d) { if (ED.lasso) clearLasso(); return onItemDown(e, stage, page, d, pt); }
