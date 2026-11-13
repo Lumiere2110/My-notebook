@@ -1129,3 +1129,39 @@ body.editing .main { padding: 0; }
 .step-btn.big { font-size: 15px; }
 .step-btn:hover { background: var(--hover); }
 :is(.dev-phone, .dev-tablet) .step-btn { min-width: 40px; padding: 6px 10px; }
+
+/* ===== 見るモード（編集できない） ===== */
+.view-btn, .view-toggle {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 36px; padding: 0 12px;
+  border: 1px solid var(--border); border-radius: 18px; background: var(--surface); color: var(--muted);
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.view-btn .ic, .view-toggle .ic { width: 18px; height: 18px; }
+.view-btn:hover, .view-toggle:hover { color: var(--text); background: var(--hover); }
+.view-mode .view-btn, .view-toggle.on { border-color: transparent; background: #2f6fd6; color: #fff; }
+.view-mode .view-btn:hover, .view-toggle.on:hover { background: #2a62c0; color: #fff; }
+.view-toggle.ed-view { margin-right: 4px; }
+/* 上のバーにボタンがあるときは、メモの画面のボタンは出さない（スマホは上のバーを隠すので出す） */
+body:not(.dev-phone) .view-toggle.ed-view { display: none; }
+.view-toggle.note-view-toggle { height: 32px; padding: 0 10px; }
+.note.typing .view-toggle { display: none; }
+@media (max-width: 600px) { .view-btn span { display: none; } .view-btn { width: 40px; padding: 0; justify-content: center; } }
+
+/* メモの画面: 書くための道具をすべて隠す */
+.ed.viewing .tools, .ed.viewing .ed-sub, .ed.viewing .ed-hist > .icon-btn:not([title="その他"]),
+.ed.viewing .page-head .icon-btn, .ed.viewing .add-page, .ed.viewing .ed-done { display: none !important; }
+.ed.viewing .ed-name { cursor: default; }
+.ed.viewing .ed-name:hover, .ed.viewing .ed-name:focus { background: transparent; }
+.ed.viewing .stage, .ed.viewing .item, .ed.viewing .item * { cursor: default !important; touch-action: pan-x pan-y; }
+.ed.viewing .stage a.url { cursor: pointer !important; }
+.ed.viewing .item-link { cursor: pointer !important; }
+.dev-phone .ed.viewing .pages-scroll { padding-bottom: env(safe-area-inset-bottom); }
+.dev-tablet .ed.viewing .pages-scroll { margin-left: 0; }
+.note .note-title[readonly], .note .note-body[readonly] { cursor: default; }
+.view-mode .note-tools .note-tool:not(.nt-draw) { display: none; }
+.view-mode .note-tool.nt-draw span { position: static; width: auto; height: auto; clip: auto; margin-left: 4px; font-size: 15px; }
+.view-mode .note-tool.nt-draw { display: flex; width: auto; padding: 0 14px; }
+/* 一覧: 作る・名前を変える・消すボタンを隠す */
+.view-mode .fab, .view-mode .files-head .btn.primary, .view-mode .files-head .icon-btn, .view-mode .folder-item.add,
+.view-mode .file-more, .view-mode .view-title .icon-btn, .view-mode .view-title .btn, .view-mode .nav-item.add,
+.view-mode .trash-row .btn, .view-mode .empty-state .btn { display: none !important; }

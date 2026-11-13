@@ -23,6 +23,7 @@ const ICONS = {
   bullet: 'M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z',
   compose: 'M5 3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7H5V5h7V3H5zm12.78 1a.69.69 0 0 0-.48.2l-1.22 1.21 2.5 2.5L19.8 6.7c.26-.26.26-.7 0-.95L18.25 4.2c-.13-.13-.3-.2-.47-.2zm-2.41 2.12L8 13.5V16h2.5l7.37-7.38-2.5-2.5z',
   draw: 'M4.59 6.89c.7-.71 1.4-1.35 1.71-1.22.5.2 0 1.03-.3 1.52-.25.42-2.86 3.89-2.86 6.31 0 1.28.48 2.34 1.34 2.98.75.56 1.74.73 2.64.46 1.07-.31 1.95-1.4 3.06-2.77 1.21-1.49 2.83-3.44 4.08-3.44 1.63 0 1.65 1.01 1.76 1.79-3.78.64-5.38 3.67-5.38 5.37 0 1.7 1.44 3.09 3.21 3.09 1.63 0 4.29-1.33 4.69-6.1H21v-2.5h-2.47c-.15-1.65-1.09-4.2-4.03-4.2-2.25 0-4.18 1.91-4.94 2.84-.58.73-2.06 2.48-2.29 2.72-.25.3-.68.84-1.11.84-.45 0-.72-.83-.36-1.92.35-1.09 1.4-2.86 1.85-3.52.78-1.14 1.3-1.92 1.3-3.28C8.95 3.69 7.31 3 6.44 3 5.12 3 3.97 4 3.72 4.25c-.36.36-.66.66-.88.93l1.75 1.71zm9.29 11.66c-.31 0-.74-.26-.74-.72 0-.6.73-2.2 2.87-2.76-.3 2.69-1.43 3.48-2.13 3.48z',
+  eye: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z',
   phone: 'M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z',
   tablet: 'M18.5 0h-14C3.12 0 2 1.12 2 2.5v19C2 22.88 3.12 24 4.5 24h14c1.38 0 2.5-1.12 2.5-2.5v-19C21 1.12 19.88 0 18.5 0zm-7 23c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm7.5-4H4V3h15v16z',
   laptop: 'M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z',
@@ -277,6 +278,7 @@ const S = {
   query: '',
   layout: pref('layout', 'grid'),
   device: pref('device', ''),
+  view: pref('viewMode', '0') === '1',   // 見るモード（編集できない）
   theme: pref('theme', 'auto'),
 };
 let ED = null;            // 開いているメモファイルのエディター
@@ -1337,6 +1339,34 @@ function dragConn(e, stage, page, it) {
   });
 }
 
+/* ===== 見るモード: メモを読むだけ。この間は、メモの中身・名前・ページ・フォルダなどを一切変えられない ===== */
+function applyView() {
+  document.body.classList.toggle('view-mode', S.view);
+  const b = $('#viewBtn');
+  if (b) {
+    b.replaceChildren(icon(S.view ? 'eye' : 'edit'), el('span', { text: S.view ? '見るモード' : '編集モード' }));
+    b.title = S.view ? '見るモード（編集できません）。押すと編集モードに' : '編集モード。押すと見るモード（編集できない）に';
+    b.setAttribute('aria-pressed', S.view ? 'true' : 'false');
+  }
+}
+function toggleView() {
+  if (ED?.editId) document.activeElement?.blur();
+  S.view = !S.view;
+  setPref('viewMode', S.view ? '1' : '0');
+  applyView();
+  closePopover();
+  if (ED) closeEditorAndReopen();
+  else if (NV) { noteFlush(); closeNote(); render(); }
+  else render();
+  toast(S.view ? '見るモードにしました（編集できません）' : '編集モードにしました');
+}
+/* 編集するボタンの代わりに出す「見る / 編集」の切り替えボタン */
+function viewToggleBtn(cls = '') {
+  return el('button', { class: 'view-toggle ' + cls + (S.view ? ' on' : ''), type: 'button', onclick: (e) => { e.stopPropagation(); toggleView(); },
+    title: S.view ? '見るモード（編集できません）。押すと編集モードに' : '押すと見るモード（編集できない）に', 'aria-pressed': S.view ? 'true' : 'false' },
+  icon(S.view ? 'eye' : 'edit'), el('span', { text: S.view ? '見るモード' : '編集' }));
+}
+
 /* ===== 使う端末（スマホ・iPad・PC）。端末ごとに画面と操作を変える ===== */
 const DEVICES = [
   ['phone', 'phone', 'スマホ', ['ツールは画面の下（親指で届く場所）', 'メモを開くとページを画面いっぱいに', '指で書く・2本指で拡大とスクロール', 'ボタンを大きく']],
@@ -1442,13 +1472,14 @@ function openNote(file) {
   const autoGrow = (ta) => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
   const save = () => { clearTimeout(NV.saveT); const f = NV.file; NV.saveT = setTimeout(() => { if (NV) NV.saveT = null; touch(f, 'files'); }, 500); };
 
-  const title = el('textarea', { class: 'note-title', rows: 1, maxlength: 80, placeholder: 'タイトル', 'aria-label': 'タイトル', value: file.name === '無題のメモ' ? '' : file.name });
+  const title = el('textarea', { class: 'note-title', rows: 1, maxlength: 80, placeholder: 'タイトル', 'aria-label': 'タイトル', value: file.name === '無題のメモ' ? '' : file.name, readOnly: S.view });
   title.addEventListener('input', () => { title.value = title.value.replace(/\n/g, ''); file.name = title.value.trim() || '無題のメモ'; autoGrow(title); save(); });
   title.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); body.focus(); body.setSelectionRange(0, 0); } });
 
   const b0 = bodyItem(file);
-  const body = el('textarea', { class: 'note-body', placeholder: 'メモを入力', 'aria-label': '本文', value: b0 ? b0.it.text : '' });
+  const body = el('textarea', { class: 'note-body', placeholder: S.view ? '' : 'メモを入力', 'aria-label': '本文', value: b0 ? b0.it.text : '', readOnly: S.view });
   const setText = (v) => {
+    if (S.view) return;
     let b = bodyItem(file);
     if (!b) { if (!v) return; b = makeBody(file); }
     shiftSpans(b.it, b.it.text || '', v);
@@ -1457,6 +1488,7 @@ function openNote(file) {
   body.addEventListener('input', () => { setText(body.value); autoGrow(body); });
   // 行の頭の「☐」をトンと押したらチェック
   body.addEventListener('click', () => {
+    if (S.view) return;
     const pos = body.selectionStart;
     if (pos !== body.selectionEnd) return;
     const ls = body.value.lastIndexOf('\n', pos - 1) + 1;
@@ -1468,7 +1500,7 @@ function openNote(file) {
   });
   // 改行したら、チェックリスト・箇条書きを次の行にも続ける（中身がない行で改行したら終わり）
   body.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.isComposing || e.shiftKey) return;
+    if (S.view || e.key !== 'Enter' || e.isComposing || e.shiftKey) return;
     const pos = body.selectionStart, v = body.value;
     const ls = v.lastIndexOf('\n', pos - 1) + 1;
     const m = /^(☐ |☑ |・ )/.exec(v.slice(ls, pos));
@@ -1509,12 +1541,13 @@ function openNote(file) {
     el('div', { class: 'note-pages-row' }, file.pages.filter((p) => p.strokes?.length || p.items.some((i) => !i.body)).slice(0, 3).map((p) => el('div', { class: 'thumb-wrap' }, thumbOf(p))))) : null;
 
   const done = el('button', { class: 'note-done', type: 'button', text: '完了', onclick: () => document.activeElement?.blur() });
-  const tool = (ic, label, fn) => el('button', { class: 'note-tool', type: 'button', title: label, 'aria-label': label,
+  const tool = (ic, label, fn, cls = '') => el('button', { class: 'note-tool ' + cls, type: 'button', title: label, 'aria-label': label,
     onmousedown: (e) => e.preventDefault(), onclick: fn }, icon(ic), el('span', { text: label }));
   NV.root = el('div', { class: 'note' },
     el('div', { class: 'note-bar' },
       el('button', { class: 'note-back', type: 'button', onclick: () => go(NV.back) }, icon('back'), el('span', { text: fo?.name || '戻る' })),
       el('span', { class: 'spacer' }),
+      viewToggleBtn('note-view-toggle'),
       done,
       iconBtn('more', 'その他', (e) => { e.stopPropagation(); noteMenu(e.currentTarget, file, openPages); })),
     el('div', { class: 'note-scroll' },
@@ -1524,14 +1557,15 @@ function openNote(file) {
       tool('checkbox', 'チェック', () => toggleLines('☐ ')),
       tool('bullet', '箇条書き', () => toggleLines('・ ')),
       tool('clock', '日時', insertNow),
-      tool('draw', '手書き', openPages),
+      tool('draw', S.view ? 'ページで見る' : '手書き', openPages, 'nt-draw'),
       tool('compose', '新規メモ', () => { noteFlush(); quickNote(); })));
   NV.title = title; NV.body = body;
   $('#main').replaceChildren(NV.root);
   document.body.classList.add('note-mode');
   autoGrow(title); autoGrow(body);
-  NV.focusIn = () => NV?.root.classList.add('typing');
-  NV.focusOut = () => setTimeout(() => { if (NV && !NV.root.contains(document.activeElement)) NV.root.classList.remove('typing'); }, 0);
+  // 文字の欄に入ったら「入力中」（ボタンを押したときは入力中にしない）
+  NV.focusIn = (e) => { if (e.target.matches?.('textarea:not([readonly])')) NV?.root.classList.add('typing'); };
+  NV.focusOut = () => setTimeout(() => { if (NV && !document.activeElement?.matches?.('.note textarea:not([readonly])')) NV.root.classList.remove('typing'); }, 0);
   NV.root.addEventListener('focusin', NV.focusIn);
   NV.root.addEventListener('focusout', NV.focusOut);
   // キーボードが出たら、下のツールをキーボードのすぐ上に出す
@@ -1539,7 +1573,7 @@ function openNote(file) {
   window.visualViewport?.addEventListener('resize', NV.vv);
   window.visualViewport?.addEventListener('scroll', NV.vv);
   // 新しく作ったメモはすぐに書けるように
-  if (NV.fresh || (file.name === '無題のメモ' && !b0?.it.text && !hasPageContent(file))) title.focus();
+  if (!S.view && (file.name === '無題のメモ' && !b0?.it.text && !hasPageContent(file))) title.focus();
   window.scrollTo(0, 0);
 }
 function fmtLong(t) {
@@ -1564,7 +1598,13 @@ function closeNote() {
   document.body.classList.remove('note-mode');
 }
 function noteMenu(anchor, f, openPages) {
+  if (S.view) return menu(anchor, [
+    ['draw', 'ページで見る（手書き・付箋）', openPages],
+    ['edit', '編集モードにする', toggleView],
+    [DEVICES.find((x) => x[0] === device())[1], '使う端末を変える', () => chooseDevice()],
+  ]);
   menu(anchor, [
+    ['eye', '見るモードにする（編集できない）', toggleView],
     ['draw', 'ページで開く（手書き・付箋）', openPages],
     ['moveTo', '別のフォルダへ移動', () => moveFile(f)],
     ['copy', 'コピーを作る', () => cloneFile(f)],
@@ -1574,6 +1614,7 @@ function noteMenu(anchor, f, openPages) {
 }
 /* すぐに書きはじめる新しいメモ（いま見ているフォルダ、なければ最初のフォルダに入れる） */
 function quickNote() {
+  if (S.view) return;
   const r = S.route;
   let box = r.name === 'box' ? boxById(r.boxId) : NV ? boxById(contextBoxOf(NV.file)) : boxById(pref('lastBox', '')) || S.boxes.find(boxAlive);
   if (!box) return createBox();
@@ -1600,9 +1641,11 @@ function openEditor(file) {
     ruler: pref('ruler', '0') === '1',
     textVert: pref("textVert", "0") === "1", textSize: TEXT_SIZES[1][0], textColor: INK[0][0], stickyColor: STICKY[0][0],
     back: backFor(file),
+    view: S.view,
   };
   const nameInput = el('input', { class: 'ed-name', value: file.name, maxlength: 80, 'aria-label': 'メモファイルの名前', placeholder: '無題のメモ' });
-  nameInput.addEventListener('input', () => { file.name = nameInput.value; scheduleSave(); });
+  if (ED.view) nameInput.readOnly = true;
+  nameInput.addEventListener('input', () => { if (ED.view) return; file.name = nameInput.value; scheduleSave(); });
   nameInput.addEventListener('change', () => { if (!nameInput.value.trim()) { file.name = nameInput.value = '無題のメモ'; scheduleSave(); } });
   nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) nameInput.blur(); });
 
@@ -1620,7 +1663,7 @@ function openEditor(file) {
   ED.scroller = el('div', { class: 'pages-scroll' }, ED.pagesBox);
   ED.zoom = clamp(+pref('zoom', '1') || 1, ZOOMS[0], ZOOMS[ZOOMS.length - 1]);
   ED.zoomBtn = el('button', { class: 'zoom-label', type: 'button', title: '拡大率（クリックで選ぶ）', onclick: (e) => { e.stopPropagation(); zoomMenu(e.currentTarget); } });
-  ED.root = el('div', { class: 'ed tool-' + ED.tool },
+  ED.root = el('div', { class: 'ed tool-' + ED.tool + (ED.view ? ' viewing' : '') },
     el('div', { class: 'ed-top' },
       el('div', { class: 'ed-bar' },
         iconBtn('back', '戻る', () => {
@@ -1630,6 +1673,7 @@ function openEditor(file) {
         el('div', { class: 'ed-title' }, nameInput, where),
         el('div', { class: 'ed-hist' },
           el('div', { class: 'zoom' }, iconBtn('zoomOut', '縮小（Ctrl + -）', () => stepZoom(-1), 'sm'), ED.zoomBtn, iconBtn('zoomIn', '拡大（Ctrl + +）', () => stepZoom(1), 'sm')),
+          viewToggleBtn('ed-view'),
           el('button', { class: 'btn primary ed-done', type: 'button', text: '完了', title: '入力を終える', onclick: () => document.activeElement?.blur() }),
           ED.undoBtn, ED.redoBtn,
           iconBtn('more', 'その他', (e) => { e.stopPropagation(); editorMenu(e.currentTarget); })),
@@ -1771,7 +1815,7 @@ function closeEditor() {
   document.body.classList.remove('editing');
 }
 function scheduleSave() {
-  if (!ED) return;
+  if (!ED || ED.view) return;
   clearTimeout(ED.saveT);
   const f = ED.file;
   ED.saveT = setTimeout(() => { if (ED) ED.saveT = null; touch(f, 'files'); }, 500);
@@ -1781,7 +1825,7 @@ function flushSave() {
 }
 /* 変更を確定して「元に戻す」の履歴に積む */
 function commit() {
-  if (!ED) return;
+  if (!ED || ED.view) return;
   clearTimeout(ED.commitT); ED.commitT = null;
   for (const p of ED.file.pages) if (p.conns?.length) {          // 消えたアイテムにつながった矢印は片付ける
     const ids = new Set(p.items.map((i) => i.id));
@@ -1830,7 +1874,7 @@ function renderPages() {
   ED.pagesBox.replaceChildren();
   pages.forEach((p, i) => {
     const { w, h } = dims(p);
-    const frame = el("div", { class: "page", style: `aspect-ratio:${w} / ${h}; width:${r1(clamp(w / PAGE_W, 0.35, 1) * 100)}%; margin: 0 auto` }, buildStage(p, true));
+    const frame = el("div", { class: "page", style: `aspect-ratio:${w} / ${h}; width:${r1(clamp(w / PAGE_W, 0.35, 1) * 100)}%; margin: 0 auto` }, buildStage(p, !ED.view));
     const head = el('div', { class: 'page-head' },
       el('span', { class: 'page-no', text: `${i + 1} / ${pages.length}` }),
       el('span', { class: 'spacer' }),
@@ -1845,14 +1889,14 @@ function renderPages() {
     fitStage(frame);
     if (p.conns?.length) drawConns(frame.querySelector('.stage'), p);
   });
-  ED.pagesBox.append(el('button', { class: 'add-page', type: 'button', onclick: () => addPage(pages.length - 1) }, icon('addPage'), 'ページを追加'));
+  if (!ED.view) ED.pagesBox.append(el('button', { class: 'add-page', type: 'button', onclick: () => addPage(pages.length - 1) }, icon('addPage'), 'ページを追加'));
   markSel();
   drawLassoBox();
 }
 function renderPage(page) {
   const old = stageOf(page.id);
   if (!old) return renderPages();
-  const st = buildStage(page, true);
+  const st = buildStage(page, !ED.view);
   st.style.transform = old.style.transform;
   st.style.setProperty('--inv', old.style.getPropertyValue('--inv'));
   const editing = ED.editId;
@@ -1957,7 +2001,12 @@ async function customSize(p) {
 }
 function editorMenu(anchor) {
   const f = ED.file;
+  if (ED.view) return menu(anchor, [
+    ['edit', '編集モードにする', toggleView],
+    [DEVICES.find((x) => x[0] === device())[1], '使う端末を変える', () => chooseDevice()],
+  ]);
   menu(anchor, [
+    ['eye', '見るモードにする（編集できない）', toggleView],
     ['addPage', 'ページを追加', () => addPage(f.pages.length - 1)],
     ['edit', '名前を変更', () => renameFile(f)],
     ['moveTo', '別のフォルダへ移動', () => moveFile(f)],
@@ -2402,16 +2451,24 @@ function bindEditor(root) {
   root.addEventListener('pointerdown', (e) => {
     const stage = e.target.closest('.stage');
     if (!stage || (e.button !== 0 && e.pointerType === 'mouse')) return;
+    if (!ED || ED.view) return;                                    // 見るモード: ページの上では何も変えない（スクロール・拡大はできる）
     onStageDown(e, stage);
   });
   root.addEventListener('click', (e) => {
     if (e.target.closest('.stage a.url')) e.preventDefault();      // URL は1回押しただけでは開かない（ダブルクリックで開く）
+    if (!ED) return;
+    if (ED.view) {                                                 // 見るモード: メモへ移動ボタンは押せる
+      const ln = e.target.closest('.stage .item-link');
+      const it = ln && pageById(ln.closest('.stage').dataset.page)?.items.find((x) => x.id === ln.dataset.id);
+      if (it) { openLink(it); return; }
+    }
     const tag = e.target.closest('.stage .tag');
     if (tag && ED.tool === 'select' && !ED.editId) { e.preventDefault(); searchFor('#' + tag.dataset.tag); }
   });
   root.addEventListener('dblclick', (e) => {
     const url = urlAtEvent(e);
     if (url) { e.preventDefault(); window.open(url, '_blank', 'noopener'); return; }
+    if (!ED || ED.view) return;
     const stage = e.target.closest('.stage');
     if (!stage || ED.tool !== 'select' || e.target.closest('.item')) return;
     createItem(pageById(stage.dataset.page), 'text', toLocal(e, stage));
@@ -2477,6 +2534,7 @@ function bindEditor(root) {
     if (it && !ED.rerendering) stopEditing(page, it, d, ta, e.relatedTarget);
   });
   root.addEventListener('drop', (e) => {
+    if (!ED || ED.view) return;
     const files = imageFilesFrom(e.dataTransfer);
     if (!files.length) return;
     e.preventDefault(); e.stopPropagation(); hideDropHint();
@@ -3222,6 +3280,7 @@ function currentPage() {
   return { page, cx: w / 2, cy: clamp(((vTop + vBot) / 2 - best.rect.top) / s, 100, h - 100) };
 }
 async function addImages(files, page, pt) {
+  if (ED?.view) return;
   if (!ED) return;
   const cur = page ? { page, cx: pt.x, cy: pt.y } : currentPage();
   const { w: W, h: H } = dims(cur.page);
@@ -3244,6 +3303,7 @@ async function addImages(files, page, pt) {
   commit();
 }
 function addPastedText(text) {
+  if (ED?.view) return;
   const { page, cx, cy } = currentPage();
   const it = { id: uid(), type: 'text', x: Math.round(cx - 250), y: Math.round(cy - 40), w: 500, text, size: ED.textSize, color: ED.textColor };
   page.items.push(it);
@@ -3488,7 +3548,8 @@ async function init() {
   $('#searchClear').append(icon('close'));
   $('#moreBtn').append(icon('more'));
   if (pref('navMini', '0') === '1') document.body.classList.add('nav-mini');
-  applyTheme(); applyLayout(); applyDevice();
+  applyTheme(); applyLayout(); applyDevice(); applyView();
+  $('#viewBtn').addEventListener('click', toggleView);
 
   $('#navToggle').addEventListener('click', toggleNav);
   $('#scrim').addEventListener('click', closeNav);
@@ -3503,8 +3564,9 @@ async function init() {
       ['upload', 'バックアップから読み込む', () => $('#importFile').click()],
       ['box', '新しいボックス', createBox],
       ['trash', 'ゴミ箱ボックス', () => { clearSearch(); go('#/trash'); }],
+      [S.view ? 'edit' : 'eye', S.view ? '編集モードにする' : '見るモードにする（編集できない）', toggleView],
       [DEVICES.find((x) => x[0] === device())[1], '使う端末を変える', () => chooseDevice()],
-    ]);
+    ].filter((m) => !S.view || !['upload', 'box'].includes(m[0])));
     const r = e.currentTarget.getBoundingClientRect();
     pop.style.left = Math.max(8, r.right - pop.offsetWidth) + 'px';
   });
@@ -3531,7 +3593,7 @@ async function init() {
       closeNav();
       return;
     }
-    if (ED && (e.ctrlKey || e.metaKey) && !isTyping()) {
+    if (ED && !ED.view && (e.ctrlKey || e.metaKey) && !isTyping()) {
       const k = e.key.toLowerCase();
       if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
       if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); return; }
@@ -3543,7 +3605,7 @@ async function init() {
     }
     if (isTyping() || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === '/') { e.preventDefault(); search.focus(); return; }
-    if (!ED) return;
+    if (!ED || ED.view) return;                                    // 見るモードでは消す・ツールの切り替えもしない
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (ED.csel) { e.preventDefault(); deleteConn(); return; }
       if (ED.lasso) { e.preventDefault(); lassoDelete(); return; }
@@ -3555,7 +3617,7 @@ async function init() {
 
   // 貼り付け: 画像はページに、文字は（入力中でなければ）テキストボックスとして置く
   document.addEventListener('paste', (e) => {
-    if (!ED || document.querySelector('.modal-wrap')) return;
+    if (!ED || ED.view || document.querySelector('.modal-wrap')) return;
     const files = [...(e.clipboardData?.items || [])].filter((i) => i.kind === 'file' && i.type.startsWith('image/')).map((i) => i.getAsFile()).filter(Boolean);
     if (files.length) { e.preventDefault(); addImages(files); return; }
     if (isTyping()) return;
